@@ -1,3 +1,4 @@
+_G.OS_VERSION = "v0.98 "
 local GUI = require("lib/gui")
 local GateRenderer = require("lib/gate-renderer")
 local glyph_data = require("lib/glyph")
@@ -351,7 +352,7 @@ return function(stargate, Gates, display)
 			display.setCursorPos(38, 16)
 			display.setBackgroundColor(colors.red)
 			display.write(" BACK ")
-			ui.registerArea(38, 16, 6, 1, function() exitBrowser = true end)
+			ui.registerArea(38, 16, 6, 1, function() ui.closeWindow() end)
 		end
 		ui.openWindow({
 			title = "External Disk Browser",
@@ -436,280 +437,228 @@ return function(stargate, Gates, display)
         self.renderMenu()
 	end
 	local function addNewEntry()
-		local entryData = {
-			name = "New Gate",
-			gateType = "MilkyWay",
-			isIntergalactic = false
-		}
-		local entryMenu = {
-			title = "Create New Entry",
-			items = {
-				{ 
-					label = function() return "Name: " .. entryData.name end,
-					action = function() 
-						local name = ui.inputKeyboard("New Entry", "Enter Name", 12, 4)
-						if name and name ~= "" then entryData.name = name end
-						return false
-					end
-				},
-				{ 
-					label = function() return "Type: " .. entryData.gateType end,
-					action = function() 
-						local types = {"MilkyWay", "Pegasus", "Universe"}
-						local currentIdx = 1
-						for i, t in ipairs(types) do if t == entryData.gateType then currentIdx = i end end
-						entryData.gateType = types[(currentIdx % #types) + 1]
-						return false 
-					end
-				},
-				{ 
-					label = function() return "Range: " .. (entryData.isIntergalactic and "[Intergalactic]" or "[Local]") end,
-					action = function() 
-						entryData.isIntergalactic = not entryData.isIntergalactic
-						return false
-					end
-				},
-				{
-					label = "SAVE",
-					action = function()
-						local newOrder = 1
-						local usedOrders = {}
-						for _, data in pairs(Gates) do
-							if data.order then usedOrders[data.order] = true end
-						end
-						while usedOrders[newOrder] do newOrder = newOrder + 1 end
-						Gates[entryData.name] = {
-							name = entryData.name,
-							gateType = entryData.gateType,
-							isIntergalactic = entryData.isIntergalactic,
-							order = newOrder,
-							addresses = {}
-						}
-						saveAddressBook()
-						selectedAddress = entryData.name
-						return true 
-					end
-				},
-				{
-					label = "CANCEL",
-					action = function() return true end
-				}
-			}
-		}
-		ui.openWindow(entryMenu, {
-			frame = colors.gray,
-			title = colors.yellow,
-			text = colors.white,
-			close = colors.red
-		})    
-		self.renderMenu()
-	end
+        local entryData = {
+            name = "New Gate",
+            addresses = { MilkyWay = {}, Pegasus = {}, Universe = {} },
+            isIntergalactic = false,
+            irisCode = "NONE",
+            gateType = getGateTypeLabel()
+        }
+        local function renderNewContent()
+            local theme1 = config.theme.theme1
+            local gateColors = { MilkyWay = colors.orange, Pegasus = colors.cyan, Universe = colors.white }
+            display.setCursorPos(13, 4)
+            display.setBackgroundColor(colors.lightGray)
+            display.setTextColor(colors.white)
+            display.write(string.format(" NAME: %-21s ", entryData.name:sub(1,21)))
+            ui.registerArea(13, 4, 28, 1, function()
+                local res = ui.inputKeyboard("New Entry", "Enter Name", 12, 4, 14, entryData.name)
+                if res and res ~= "" then entryData.name = res end
+            end)
+            local function getAddrStr(t) 
+                local a = entryData.addresses[t]
+                return (a and #a > 0) and table.concat(a, "-") or "-------"
+            end
+            local addrTypes = {{"MilkyWay", colors.orange, "MW"}, {"Pegasus", colors.cyan, "PG"}, {"Universe", colors.white, "UN"}}
+            for i, info in ipairs(addrTypes) do
+                local y = 5 + i 
+                display.setCursorPos(13, y)
+                display.setBackgroundColor(info[2])
+                display.setTextColor(colors.black)
+                display.write(string.format(" %s: %-23s ", info[3], getAddrStr(info[1]):sub(1, 23)))
+                ui.registerArea(13, y, 28, 1, function()
+                    local res = ui.inputNumpad(info[1], "Enter Address", entryData.addresses[info[1]])
+                    if res then entryData.addresses[info[1]] = res end
+                end)
+            end
+            display.setBackgroundColor(entryData.isIntergalactic and colors.blue or colors.gray)
+            display.setTextColor(colors.white)
+            display.setCursorPos(13, 10) display.write("             ") 
+            display.setCursorPos(13, 11) display.write(entryData.isIntergalactic and "[DIMENSIONAL]" or "[   LOCAL   ]")
+            ui.registerArea(13, 10, 13, 2, function()
+                entryData.isIntergalactic = not entryData.isIntergalactic
+            end)
+            local detType = getGateTypeLabel()
+            display.setBackgroundColor(colors.green)
+            display.setTextColor(colors.black)
+            display.setCursorPos(31, 10) display.write(" DHD Entry ")
+            display.setCursorPos(31, 11) display.write(" " .. string.format("%-9s", detType:sub(1,9)) .. " ")
+            ui.registerArea(31, 10, 11, 2, function()
+                local IDs = ui.inputGlyphAddress(stargate, detType, 12, 4)
+                if IDs then entryData.addresses[detType] = IDs end
+            end)
+            local savedType = entryData.gateType
+            display.setBackgroundColor(gateColors[savedType] or colors.gray)
+            display.setTextColor(colors.black)
+            display.setCursorPos(13, 13) display.write(" GateType: ")
+            display.setCursorPos(13, 14) display.write(" " .. string.format("%-9s", savedType) .. " ")
+            ui.registerArea(13, 13, 11, 2, function()
+                local types = {"MilkyWay", "Pegasus", "Universe"}
+                local curIdx = 1
+                for i, t in ipairs(types) do if t == savedType then curIdx = i end end
+                entryData.gateType = types[(curIdx % #types) + 1]
+            end)
+            display.setBackgroundColor(colors.blue)
+            display.setTextColor(colors.white)
+            display.setCursorPos(25, 13) display.write(" IDC CODE ")
+            display.setCursorPos(25, 14) display.write(" " .. string.format("%-8s", entryData.irisCode) .. " ")
+            ui.registerArea(25, 13, 10, 2, function()
+                entryData.irisCode = ui.inputKeyboard("Security", "Enter Iris Code", 12, 4, 8, entryData.irisCode)
+            end)
+            display.setBackgroundColor(colors.green)
+            display.setTextColor(colors.black)
+            display.setCursorPos(13, 16) display.write(" [ SAVE NEW ENTRY ] ")
+            display.setCursorPos(13, 17) display.write("   ADD TO ADDRESSES ")
+            ui.registerArea(13, 16, 20, 2, function()
+                if not Gates[entryData.name] then
+                    local nextOrder = 1
+                    local used = {}
+                    for _, g in pairs(Gates) do if g.order then used[g.order] = true end end
+                    while used[nextOrder] do nextOrder = nextOrder + 1 end
+                    entryData.order = nextOrder
+                    Gates[entryData.name] = entryData
+                    saveAddressBook()
+                    selectedAddress = entryData.name
+                    ui.closeWindow()
+                end
+            end)
+            display.setBackgroundColor(colors.red)
+            display.setTextColor(colors.white)
+            display.setCursorPos(35, 16) display.write("  CANCEL  ")
+            display.setCursorPos(35, 17) display.write("  DISCARD ")
+            ui.registerArea(35, 16, 10, 2, function() ui.closeWindow() end)
+        end
+        ui.openWindow({ title = "Create New Entry", customRender = renderNewContent }, 
+        { frame = colors.gray, title = colors.blue, text = colors.white, close = colors.red })
+        ui.clear()
+        self.renderMenu()
+    end
 	local function editEntry()
-		local entry = Gates[selectedAddress]
-		if not entry then return end 
-		if not entry.addresses then entry.addresses = {} end
-		local function concentrate(tbl, sep)
-			if type(tbl) ~= "table" then return tostring(tbl or "") end
-			local parts = {}
-			for i = 1, #tbl do
-				table.insert(parts, tostring(tbl[i]))
-			end
-			return table.concat(parts, sep or "")
-		end
-		local editMenu = {
-			title = function() 
-				return "Editing: " .. (selectedAddress or "Unknown")
-			end,
-			items = {
-				{ 
-					label = function() return "Name: " .. (entry.name or "None") end,
-					action = function() 
-						local newName = ui.inputKeyboard("Rename", "Enter Name", 12, 4, 14, entry.name)
-						if newName and newName ~= "" and newName ~= selectedAddress then
-							Gates[newName] = entry
-							Gates[selectedAddress] = nil
-							selectedAddress = newName
-							entry.name = newName
-							saveAddressBook()
-						end
-						return false 
-					end
-				},
-				{ 
-					label = "Move [ UP ]",   
-					action = function() moveEntryOrder(entry, -1) return false end 
-				},
-				{ 
-					label = "Move [ DOWN ]", 
-					action = function() moveEntryOrder(entry, 1) return false end 
-				},
-				{ 
-					label = function() return "Dest. Type: " .. (entry.gateType or "MilkyWay") end,
-					action = function() 
-						local types = {"MilkyWay", "Pegasus", "Universe"}
-						local currentIdx = 1
-						for i, t in ipairs(types) do 
-							if t == entry.gateType then currentIdx = i end 
-						end
-						entry.gateType = types[(currentIdx % #types) + 1]
-						saveAddressBook()
-						return false
-					end
-				},
-				{ 
-					label = function() return "Iris Code: " .. (entry.irisCode or "None") end, 
-					action = function() 
-						local current = entry.irisCode or ""
-						entry.irisCode = ui.inputKeyboard("Security", "Enter Iris Code", 12, 4, 8, current) 
-						saveAddressBook() 
-						return false
-					end 
-				},
-				{ 
-					label = function() return "Range: " .. (entry.isIntergalactic and "[Intergalactic]" or "[Local]") end, 
-					action = function() 
-						entry.isIntergalactic = not entry.isIntergalactic
-						saveAddressBook()
-						return false
-					end 
-				},
-				{ 
-					label = function() 
-						local detectedType = getGateTypeLabel()
-						local addrStr = concentrate(entry.addresses[detectedType],"-")
-						return "DHD " .. detectedType .. ": " .. (addrStr ~= "-" and addrStr or "None") 
-					end, 
-					action = function()
-						local detectedType = getGateTypeLabel()
-						local IDs, triggeredSave = ui.inputGlyphAddress(stargate, detectedType, 12, 4)
-						if IDs then
-							entry.addresses = entry.addresses or {}
-							entry.addresses[detectedType] = IDs
-							saveAddressBook()
-						end
-						return false
-					end
-				},
-				{ 
-					label = function() 
-						local addrStr = concentrate(entry.addresses["MilkyWay"], "-")
-						local displayStr = (addrStr and addrStr ~= "" and addrStr ~= "-") and addrStr or "None"
-						return "MilkyWay:    " .. displayStr
-					end, 
-					action = function()
-						local currentAddr = entry.addresses["MilkyWay"]
-						local addrTbl = ui.inputNumpad("MilkyWay", "Enter Address", currentAddr)
-						if addrTbl then 
-							entry.addresses["MilkyWay"] = addrTbl 
-							saveAddressBook()
-						end
-						return false
-					end 
-				},
-				{ 
-					label = function() 
-						local addrStr = concentrate(entry.addresses["Pegasus"], "-")
-						local displayStr = (addrStr and addrStr ~= "" and addrStr ~= "-") and addrStr or "None"
-						return "Pegasus:     " .. displayStr
-					end, 
-					action = function() 
-						local currentAddr = entry.addresses["Pegasus"]
-						local addrTbl = ui.inputNumpad("Pegasus", "Enter Address", currentAddr)
-						if addrTbl then 
-							entry.addresses["Pegasus"] = addrTbl 
-							saveAddressBook()
-						end
-						return false
-					end 
-				},
-				{ 
-					label = function() 
-						local addrStr = concentrate(entry.addresses["Universe"], "-")
-						local displayStr = (addrStr and addrStr ~= "" and addrStr ~= "-") and addrStr or "None"
-						return "Universe:    " .. displayStr
-					end, 
-					action = function()
-						local currentAddr = entry.addresses["Universe"]
-						local addrTbl = ui.inputNumpad("Universe", "Enter Address", currentAddr)
-						if addrTbl then 
-							entry.addresses["Universe"] = addrTbl 
-							saveAddressBook()
-						end
-						return false
-					end 
-				},
-				{ 
-					label = function() 
-						return "Redstone Dial: " .. (entry.isRedial and "[YES]" or "[ NO ]") 
-					end, 
-					action = function()
-						local newState = not entry.isRedial
-						for _, data in pairs(Gates) do
-							data.isRedial = false
-						end
-						entry.isRedial = newState
-						saveAddressBook()
-						return false 
-					end 
-				},
-				{ 
-					label = function() 
-						local status = "[ ]"
-						local diskGates, driveAvailable = getDiskData()
-						if driveAvailable and diskGates and diskGates[selectedAddress] then
-							status = getSyncStatus(selectedAddress, diskGates[selectedAddress])
-						end
-						return "Export to disk " .. status
-					end, 
-					action = function() 
-						exportEntryToDisk(selectedAddress, entry)
-						return false 
-					end 
-				},	
-				{ label = "" },
-				{
-					label = "DELETE ENTRY",
-					submenu = {
-						title = "Confirm Deletion",
-						items = {
-							{
-								label = "YES - DELETE",
-								action = function()
-									local deletedOrder = entry.order or 999
-									Gates[selectedAddress] = nil
-									for name, data in pairs(Gates) do
-										if data.order and data.order > deletedOrder then
-											data.order = data.order - 1
-										end
-									end
-									saveAddressBook()
-									ui.clear()
-									selectedAddress = nil
-									for k in pairs(Gates) do 
-										selectedAddress = k 
-										break 
-									end
-									return true, true
-								end
-							},
-							{
-								label = "NO - CANCEL",
-								action = function() return true end
-							}
-						}
-					}
-				}
-			}
-		}
-		ui.openWindow(editMenu, {
-			frame = config.theme.theme1,
-			title = config.theme.thement,
-			text = colors.white,
-			close = colors.red
-		})
-		ui.clear()
-		self.renderMenu()
-	end
+        local entry = Gates[selectedAddress]
+        if not entry then return end 
+        if not entry.addresses then entry.addresses = {} end
+        local function renderEditContent()
+            local theme1 = config.theme.theme1
+            local textCol = colors.white
+            local diskGates, driveAvailable = getDiskData()
+            local gateColors = { MilkyWay = colors.orange, Pegasus = colors.cyan, Universe = colors.white }
+            display.setCursorPos(13, 4)
+            display.setBackgroundColor(colors.lightGray)
+            display.setTextColor(colors.white)
+            display.write(string.format(" NAME: %-21s ", selectedAddress:sub(1,21)))
+            ui.registerArea(13, 4, 28, 1, function()
+                local newName = ui.inputKeyboard("Rename", "Enter Name", 12, 4, 14, entry.name)
+                if newName and newName ~= "" and newName ~= selectedAddress then
+                    Gates[newName] = entry; Gates[selectedAddress] = nil
+                    selectedAddress = newName; entry.name = newName; saveAddressBook()
+                end
+            end)
+            local function getAddrStr(t) 
+                local a = entry.addresses[t]
+                return (a and #a > 0) and table.concat(a, "-") or "-------"
+            end
+            local addrTypes = {
+                {"MilkyWay", colors.orange, "MW"}, 
+                {"Pegasus", colors.cyan, "PG"}, 
+                {"Universe", colors.white, "UN"}
+            }
+            for i, info in ipairs(addrTypes) do
+                local y = 5 + i 
+                display.setCursorPos(13, y)
+                display.setBackgroundColor(info[2])
+                display.setTextColor(colors.black)
+                display.write(string.format(" %s: %-23s ", info[3], getAddrStr(info[1]):sub(1, 23)))
+                ui.registerArea(13, y, 28, 1, function()
+                    local res = ui.inputNumpad(info[1], "Enter Address", entry.addresses[info[1]])
+                    if res then entry.addresses[info[1]] = res; saveAddressBook() end
+                end)
+            end
+            display.setBackgroundColor(entry.isIntergalactic and colors.blue or colors.gray)
+            display.setTextColor(textCol)
+            display.setCursorPos(13, 10) display.write("             ") 
+            display.setCursorPos(13, 11) display.write(entry.isIntergalactic and "[DIMENSIONAL]" or "   [LOCAL]   ")
+            ui.registerArea(13, 10, 13, 2, function()
+                entry.isIntergalactic = not entry.isIntergalactic; saveAddressBook()
+            end)
+            local detType = getGateTypeLabel()
+            display.setBackgroundColor(colors.green)
+            display.setTextColor(colors.black)
+            display.setCursorPos(31, 10) display.write(" DHD Entry ")
+            display.setCursorPos(31, 11) display.write(" " .. string.format("%-9s", detType:sub(1,9)) .. " ")
+            ui.registerArea(31, 10, 11, 2, function()
+                local IDs = ui.inputGlyphAddress(stargate, detType, 12, 4)
+                if IDs then entry.addresses[detType] = IDs; saveAddressBook() end
+            end)
+            display.setTextColor(colors.black)
+            display.setBackgroundColor(colors.lightGray)
+            display.setCursorPos(45, 5) display.write("  ")
+            display.setCursorPos(44, 6) display.write("    ")
+            display.setCursorPos(43, 7) display.write("  UP  ")
+            display.setCursorPos(45, 8) display.write("  ")
+            display.setCursorPos(45, 9) display.write("  ")
+            ui.registerArea(43, 5, 7, 5, function() moveEntryOrder(entry, -1) end)
+            display.setBackgroundColor(colors.gray)
+            display.setTextColor(colors.black)
+            display.setCursorPos(45, 12) display.write("  ")
+            display.setCursorPos(45, 13) display.write("  ")
+            display.setCursorPos(43, 14) display.write(" DOWN ")
+            display.setCursorPos(44, 15) display.write("    ")
+            display.setCursorPos(45, 16) display.write("  ")
+            ui.registerArea(43, 11, 7, 6, function() moveEntryOrder(entry, 1) end)
+			local savedType = entry.gateType or "Error"
+            display.setBackgroundColor(gateColors[savedType] or colors.gray)
+            display.setTextColor(colors.black)
+            display.setCursorPos(13, 13) display.write("GateType:")
+            display.setCursorPos(13, 14) display.write("" .. string.format("%-9s", savedType) .. "")
+            ui.registerArea(13, 13, 9, 2, function()
+                local types = {"MilkyWay", "Pegasus", "Universe"}
+                local curIdx = 1
+                for i, t in ipairs(types) do if t == savedType then curIdx = i end end
+                entry.gateType = types[(curIdx % #types) + 1]
+                saveAddressBook()
+            end)
+            display.setBackgroundColor(colors.blue)
+            display.setTextColor(colors.white)
+            display.setCursorPos(23, 13) display.write("IDC CODE ")
+            display.setCursorPos(23, 14) display.write("" .. string.format("%-8s", entry.irisCode or "NONE") .. " ")
+            ui.registerArea(23, 13, 9, 2, function()
+                entry.irisCode = ui.inputKeyboard("Security", "Enter Iris Code", 12, 4, 8, entry.irisCode)
+                saveAddressBook()
+            end)
+            display.setBackgroundColor(entry.isRedial and colors.red or colors.gray)
+            display.setCursorPos(33, 13) display.write(" REDSTONE")
+            display.setCursorPos(33, 14) display.write(" DIAL:" .. (entry.isRedial and "ON " or "OFF"))
+            ui.registerArea(33, 13, 11, 2, function()
+                local newState = not entry.isRedial
+                for _, data in pairs(Gates) do data.isRedial = false end
+                entry.isRedial = newState; saveAddressBook()
+            end)
+            display.setBackgroundColor(colors.red)
+            display.setTextColor(colors.white)
+            display.setCursorPos(13, 16) display.write(" [ DELETE ENTRY ] ")
+            display.setCursorPos(13, 17) display.write("  CONFIRM REMOVE  ")
+            ui.registerArea(13, 16, 18, 2, function()
+                local deletedOrder = entry.order or 999
+                Gates[selectedAddress] = nil
+                for name, data in pairs(Gates) do
+                    if data.order and data.order > deletedOrder then data.order = data.order - 1 end
+                end
+                saveAddressBook(); selectedAddress = next(Gates); ui.closeWindow()
+            end)
+            local status = "[?]"
+            if driveAvailable and diskGates and diskGates[selectedAddress] then
+                status = getSyncStatus(selectedAddress, diskGates[selectedAddress])
+            elseif not driveAvailable then status = "[!]" end
+            display.setBackgroundColor(colors.orange)
+            display.setTextColor(colors.black)
+            display.setCursorPos(32, 16) display.write("  EXPORT  ")
+            display.setCursorPos(32, 17) display.write("   " .. status .. "    ")
+            ui.registerArea(32, 16, 10, 2, function() exportEntryToDisk(selectedAddress, entry) end)
+        end
+        ui.openWindow({ title = "Gate Configuration", customRender = renderEditContent }, 
+        { frame = colors.gray, title = colors.blue, text = colors.white, close = colors.red })
+        ui.clear(); self.renderMenu()
+    end
 	function self.renderMenu()
         local gateColors = { MilkyWay = colors.orange, Pegasus = colors.cyan, Universe = colors.white, Tollan = colors.cyan, Movie = colors.orange }
         local activeColor = gateColors[localType] or colors.orange
@@ -987,89 +936,195 @@ return function(stargate, Gates, display)
 		end
 	end
 	function self.openOptions()
-		local optionsMenu = {
-			title = "System Options",
-			items = {
-				{ label = function() return "Set Base IDC (" .. (tostring(config.idc) or "None") .. ")" end,
-				action = function() 
-					local currentIDC = tostring(config.idc or "")
-					local newCode = ui.inputKeyboard("Security Settings", "Enter IDC", 12, 4, 10)
-					if newCode and #newCode > 0 then
-						config.idc = newCode
-						stargate.idc = newCode
-						saveOptions()
-					end	return false end },
-				{ label = "Theme Settings",
-					submenu = { title = "Theme Editor", customRender = function() drawThemeContent() end } },
-				{ 
-					label = "Browse External Disk", 
-					action = function() 
-						openDiskBrowser() 
-						return false 
-					end 
-				},
-				{ label = "" },
-				{ label = "" },
-				{ label = "" },
-				{ label = "" },
-				{ label = "" },
-				{ label = "" },
-				{ label = "" },
-				{ label = "" },
-				{
-				label = "About GateOS",
-				action = function()
-					ui.openWindow({
-						title = "About",
-						items = {
-							{ label = "GateOS v0.97" },
-							{ label = "A ComputerCraft just Stargate" },
-							{ label = "Dialing Computer." },
-							{ label = "" },
-							{ label = "half the code is done with ai" },
-							{ label = "seems to work fine most of the time" },
-							{ label = "Adress book now has export sync info" },
-							{ label = "- present but diffrent, * the same" },
-							{ label = "guess ill wait for bug reports..." },
-							{ label = "" },
-							{ label = "inspired by ssgd" },
-							{ label = "" },
-							{ label = "BACK", action = function() return true end }
-						}
-					}, {
-						frame = colors.lightGray,
-						title = colors.white,
-						text = colors.cyan,
-						close = colors.red
-					})
-					return false
+        local function renderOptionsContent()
+		local startY = 5 
+		local btnWidth = 36
+		local startX = 13
+		local releaseList = {}	local isFetching = false
+		local function fetchAllReleases()
+			if isFetching then return end
+			isFetching = true
+			local response = http.get("https://api.github.com/repos/evilcarrotoverlord/gateOS/releases")				
+			if response then
+				local contents = response.readAll()
+				response.close()
+				local data = textutils.unserialiseJSON(contents)					
+				releaseList = {}
+				if data then
+					for i, release in ipairs(data) do
+						local downloadUrl = nil
+						for _, asset in ipairs(release.assets or {}) do
+							if asset.name == "installer.lua" then
+								downloadUrl = asset.browser_download_url
+								break
+							end
+						end							
+						table.insert(releaseList, {
+							label = (release.name or release.tag_name):upper(),
+							color = (i == 1) and colors.cyan or colors.lightGray,
+							action = function()
+								if downloadUrl then
+									ui.clear()
+									display.setCursorPos(1, 1)
+									print("Downloading: " .. release.name)
+									local res = http.get(downloadUrl)
+									if res then
+										local f = fs.open("installer.lua", "w")
+										f.write(res.readAll())
+										f.close()
+										res.close()
+										shell.run("installer.lua")
+										os.reboot()
+									end
+								end
+							end
+						})
+					end
 				end
-				},
+			end
+			isFetching = false
+		end
+		local function renderReleaseList()
+			local startY = 5
+			local startX = 13
+			local btnWidth = 36
+			if #releaseList == 0 then
+				display.setCursorPos(startX, startY)
+				display.setTextColor(colors.white)
+				display.write("Fetching releases...")
+				return
+			end
+			for i, release in ipairs(releaseList) do
+				if startY > 16 then break end				
+				display.setCursorPos(startX, startY)
+				display.setBackgroundColor(colors.gray)
+				display.setTextColor(release.color)	
+				local label = string.format(" %-34s", release.label)
+				display.write(label)
+				
+				ui.registerArea(startX, startY, btnWidth, 1, function()
+					release.action()
+				end)
+				startY = startY + 2
+			end
+		end
+		display.setCursorPos(startX, startY)
+		display.setBackgroundColor(colors.gray)
+		display.setTextColor(colors.lightGray)
+		display.write("                                   ")
+		display.setCursorPos(startX, startY)
+		display.write(string.format(" IDC: %s", config.idc or "None"))
+		ui.registerArea(startX, startY, btnWidth, 1, function()
+			local newCode = ui.inputKeyboard("Security Settings", "Enter IDC", 12, 4, 10)
+			if newCode and #newCode > 0 then
+				config.idc = newCode
+				stargate.idc = newCode
+				saveOptions()
+			end
+		end)
+		startY = startY + 2
+		display.setCursorPos(startX, startY)
+		display.setBackgroundColor(colors.gray)
+		display.setTextColor(colors.lightGray)
+		display.write(" [ OPEN THEME EDITOR ]             ")
+		ui.registerArea(startX, startY, btnWidth, 1, function()
+			ui.openWindow({ 
+				title = "Theme Editor", 
+				customRender = function() drawThemeContent() end 
+			}, { frame = colors.gray, title = colors.red, text = colors.white, close = colors.red })
+		end)
+		startY = startY + 2
+		display.setCursorPos(startX, startY)
+		display.setBackgroundColor(colors.gray)
+		display.setTextColor(colors.lightGray)
+		display.write(" BROWSE EXTERNAL DISK              ")
+		ui.registerArea(startX, startY, btnWidth, 1, function()
+			openDiskBrowser() 
+		end)
+		startY = startY + 2
+		display.setCursorPos(startX, startY)
+		display.setBackgroundColor(colors.gray)
+		display.setTextColor(colors.lightGray)
+		display.write(" CHECK FOR UPDATES                 ")
+		ui.registerArea(startX, startY, btnWidth, 1, function()
+			if #releaseList == 0 then fetchAllReleases() end
+			ui.openWindow({ 
+				title = "Releases", 
+				customRender = renderReleaseList 
+			}, { frame = colors.gray, title = colors.blue, text = colors.white, close = colors.red })
+		end)
+		local bottomY = 17
+		display.setCursorPos(13, bottomY)
+		display.setBackgroundColor(colors.lightGray)
+		display.setTextColor(colors.gray)
+		display.write(string.format(" GateOS %-27s", _G.OS_VERSION))
+		ui.registerArea(13, bottomY, 25, 1, function()
+		local leftText = " GateOS " .. _G.OS_VERSION
+		local rightText = "inspired by ssgd "
+		local padding = string.rep(" ", 36 - #leftText - #rightText)
+		local topBar = leftText .. padding .. rightText
+		ui.openWindow({
+			title = "About",
+			items = {
+				{ label = topBar },
+				{ label = "------------------------------------" },
+				{ label = "A CC:Tweaked JSG Dialing Computer." },
 				{ label = "" },
-				{ label = function()  return "Debug: " .. (config.debug and "[ON]" or "[OFF]") 
-				end,
-				action = function()  config.debug = not config.debug _G.DEBUG_MODE = config.debug saveOptions() return false end } }
-		}
-		ui.openWindow(optionsMenu, {
-			frame = colors.gray,
-			title = colors.yellow,
-			text = colors.white,
-			close = colors.red
-		})
-		ui.clear()
-		self.renderMenu()
-	end
+				{ label = "!! half the code is done with ai !!" },
+				{ label = "Main thing this release added was" },
+				{ label = "the menu overhaul and some small" },
+				{ label = "bugfixes. Guess this means its" },
+				{ label = "supposed to be stable now..." },
+				{ label = "" },
+				{ label = "" },
+				{ label = "" },
+				{ label = "" },
+				{ label = "BACK", action = function() return true end }
+			}
+		}, { frame = colors.lightGray, title = colors.white, text = colors.cyan, close = colors.red })
+		end)
+            local debugLabel = config.debug and "DEBUG:ON " or "DEBUG:OFF"
+            display.setCursorPos(39, bottomY)
+            display.setBackgroundColor(config.debug and colors.red or colors.lightGray)
+            display.setTextColor(colors.gray)
+            display.write(debugLabel)
+            ui.registerArea(39, bottomY, 9, 1, function()
+                config.debug = not config.debug
+                _G.DEBUG_MODE = config.debug
+                saveOptions()
+            end)
+        end
+
+        ui.openWindow({ 
+            title = "System Options", 
+            customRender = renderOptionsContent 
+        }, { frame = colors.gray, title = colors.yellow, text = colors.white, close = colors.red })
+        
+        ui.clear()
+        self.renderMenu()
+    end
 	function self.openThemeMenu() currentOpt = 1 activeWindow = "theme" end
 
     -- ==========================================
     -- MAIN EVENT LOOP
     -- ==========================================
-    self.running = true
+self.running = true
     self.renderMenu()    
     local refreshTimer = os.startTimer(0.1)
     Logger.log("Main loop started.", "SYS")
+
     while self.running do
         local eventData = {os.pullEvent()}
+        Logger.updateBuffer(eventData)
+        while #Logger.eventBuffer > 0 do
+            local currentEvent = table.remove(Logger.eventBuffer, 1)
+            local event, p1, p2, p3 = unpack(currentEvent)
+
+            if event:find("stargate") then 
+                Logger.log("Processing: " .. tostring(event), "DEBUG")
+            end
+
+            local needsRender = false
         local event, p1, p2, p3 = unpack(eventData)
 		local needsRender = false
 		local currentRS = false
@@ -1113,6 +1168,19 @@ return function(stargate, Gates, display)
                 end
                 self.idcTimer = nil
                 self.pendingIDC = nil
+			elseif event == "stargate_wormhole_incoming" then
+				gateOpen = true
+				Logger.log("Incomming Wormhole")
+				if config.irisMode == 2 then
+					local irisStatus = tostring(stargate.getStatusString()):upper()
+					if not dialingState.active and (irisStatus == "OPENED" or irisStatus == "OPEN" or irisStatus:find("DE%-ACT")) then
+						stargate.toggleIris()
+						Logger.log("Auto-Iris: Closing", "SYS")
+					else
+						Logger.log("Auto-Iris: Already " .. irisStatus, "DEBUG")
+					end
+				end
+				needsRender = true
 			elseif event == "stargate_spin_start" then
 				if not dialingState.active then
 					isBusy = true
@@ -1129,14 +1197,21 @@ return function(stargate, Gates, display)
 				isBusy = false
 				busyTimer = nil
 				needsRender = true
+
 			elseif event == "stargate_wormhole_open_unstable" or event == "stargate_wormhole_open_fully" then
 				gateOpen = true
-				Logger.log("Stargate Engaged")
+				Logger.log("Stargate Engaged", "SYS")
 				if dialingState.active then
 					local entry = Gates[selectedAddress]
-					self.pendingIDC = (entry and entry.irisCode) or config.idc
+					if entry and entry.irisCode and entry.irisCode ~= "" then
+						self.pendingIDC = tostring(entry.irisCode)
+						Logger.log("Sending IDC: " .. self.pendingIDC, "SYS")
+					else
+						Logger.log("No saved IDC")
+					end
+					
 					self.idcTimer = os.startTimer(1)
-				end
+				end			
 				needsRender = true
 			elseif event == "stargate_chevron_lit" then
 				local chevIdx = p2 or #dialingState.sequence
@@ -1169,17 +1244,6 @@ return function(stargate, Gates, display)
                     dialingState.sequence = ""
                 end
                 needsRender = true
-			elseif event == "stargate_wormhole_incoming" then
-				gateOpen = true
-				Logger.log("Stargate Engaged", "")
-				if config.irisMode == 2 then 
-					local irisStatus = stargate.getStatusString()
-					if not dialingState.active and irisStatus == "OPENED" then
-						stargate.toggleIris()
-						Logger.log("Auto-Iris: Closing for incoming wormhole", "SYS")
-					end
-				end
-				needsRender = true
 			elseif event == "stargate_wormhole_close_unstable" or event == "stargate_wormhole_close_fully" then
 				stargate.disengage()
 				gateOpen = false
@@ -1194,20 +1258,29 @@ return function(stargate, Gates, display)
 				end
 				Logger.log("Stargate Disengaged", "SYS")
 				needsRender = true
-				elseif event == "stargate_iris_state_change" then
-					needsRender = true
-				elseif event == "stargate_iris_code_received" then
-					if tostring(p2) == tostring(config.idc) then 
-						stargate.toggleIris() 
-						Logger.log("Correct IDC: Opening Iris")
-					end
+			elseif event == "stargate_iris_state_change" then
+				needsRender = true
+			elseif event == "stargate_iris_code_received" then
+				local receivedCode = tostring(p2 or "")
+				if receivedCode == "" then
+					Logger.log("IDC: No IDC", "")
+				else
+					Logger.log("IDC: " .. receivedCode, "")
+				end
+				if receivedCode ~= "" and receivedCode == tostring(config.idc) then 
+					stargate.toggleIris() 
+					Logger.log("Granted: Opening", "")
+				else
+					Logger.log("Denied: Invalid IDC", "")
+				end
 				needsRender = true
 			elseif ui.handleEvent(event, p1, p2, p3) then
 				needsRender = true
 			elseif event == "key" then
 				if p1 == keys.q then self.running = false
-            end
-        end
+			end
+			end
+		end
         if needsRender then self.renderMenu()  end 
     end
     display.clear()
