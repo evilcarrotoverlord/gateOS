@@ -1,6 +1,13 @@
 local version, stargate, display = "v1.1"
 local stargate, display
-_G.Logger = { file = "Logger.log", maxLines = 64, lastTime = "", lastColor = colors.white}
+_G.Logger = { 
+    file = "Logger.log", 
+    maxLines = 64, 
+    lastTime = "", 
+    lastColor = colors.white,
+    eventBuffer = {},
+    maxBuffer = 20
+}
 _G.DEBUG_MODE = true
 function Logger.log(msg, tag, adv)
 	local tag = tag and tag:upper() or "INFO"
@@ -29,6 +36,15 @@ function Logger.log(msg, tag, adv)
     for _, l in ipairs(logs) do f.writeLine(l) end
     f.close()
 end
+function Logger.updateBuffer(eventData)
+    if eventData == "stargate_ping" or (type(eventData) == "table" and eventData[1] == "stargate_ping") then
+        return
+    end
+    table.insert(Logger.eventBuffer, eventData)
+    if #Logger.eventBuffer > Logger.maxBuffer then
+        table.remove(Logger.eventBuffer, 1)
+    end
+end
 local function safeRequire(path)
     local status, lib = pcall(require, path)
     if not status then
@@ -44,7 +60,6 @@ term.reset = function()
     term.clear()
     term.setCursorPos(1, 1)
 end
-
 function initialize()
     Logger.log("==========Booting GateOS==========", "SYS", true)
     local ok, book = pcall(require, "gates")
@@ -146,12 +161,10 @@ function Logger.getLastLog()
         line = f.readLine() 
     end
     f.close()    
-    
     if #lines == 0 then 
         return "Empty log", colors.gray 
     end
-
-    local last = lines[#lines]
+	local last = lines[#lines]
     local col = colors.white
     if last:find("CRIT") or last:find("ERR") then 
         col = colors.red
