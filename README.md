@@ -1,0 +1,22 @@
+gateOS
+has all one would ever want from a cc:tweaked based dialing computer for Just stargate (i hope)
+- fully touch compatible for monitor only usage (5wide,3high)
+- address book
+  - automated address lenght calculation based on entered parameters
+  - import/export of addresses to a floppy
+  - per address idc settings
+  - option to select a address to dial via redstone signal
+  - cached energy requirements to see if the gate can dial it before you dial the actual address
+- address input via onscreen keyboard, real keyboard, dhd(for the current gatetype)
+- custom color settings for the ui
+- iris controlls
+  - always open/close
+  - close on incomming wormhole
+  - idc settings to open it
+- fancy animations like:
+  - diffrent gate frames/chevrons based on connected gate
+  - chevrons light up based on those that are on on the gate
+  - iris/wormhole animation
+  - while dialing it shows the currently dialed glyph (as best as i could replicate it in the limitations of a 9x9 grid)
+- a system logger accessed by pressing the text in the bottom right corner
+- newly added update feature which should pull all versions here on github
