@@ -60,6 +60,7 @@ term.reset = function()
     term.clear()
     term.setCursorPos(1, 1)
 end
+
 function initialize()
     Logger.log("==========Booting GateOS==========", "SYS", true)
     local ok, book = pcall(require, "gates")
@@ -96,15 +97,15 @@ function initialize()
     return stargate ~= nil, addressBook
 end
 function runSandboxed(addressBook)
-    local env = setmetatable({
-        Logger = Logger,
-        display = display,
-        stargate = stargate,
-        viewLogs = viewLogs,
-    }, { __index = _G })
-    setfenv(MainMenu, env)
-    return MainMenu(stargate, addressBook, display)
-end
+		local env = setmetatable({
+			Logger = Logger,
+			display = display,
+			stargate = stargate,
+			viewLogs = viewLogs,
+		}, { __index = _G })
+		setfenv(MainMenu, env)
+		return MainMenu(stargate, addressBook, display, _shell)
+	end
 function viewLogs()
     display.setBackgroundColor(colors.black) display.clear()    
     if not fs.exists(Logger.file) then
@@ -161,10 +162,12 @@ function Logger.getLastLog()
         line = f.readLine() 
     end
     f.close()    
+    
     if #lines == 0 then 
         return "Empty log", colors.gray 
     end
-	local last = lines[#lines]
+
+    local last = lines[#lines]
     local col = colors.white
     if last:find("CRIT") or last:find("ERR") then 
         col = colors.red
@@ -189,6 +192,7 @@ function main()
         return
     end
     term.clear()
+    local status, err = pcall(runSandboxed, addressBook)
     local status, err = pcall(runSandboxed, addressBook)
     if not status then
         if err == "Terminated" then
