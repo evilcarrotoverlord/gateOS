@@ -7,7 +7,7 @@ local config = { idc = "0000", irisMode = 1, debug = false, theme = {
         thement = colors.cyan, themept = colors.gray, themepwt = colors.white, themecst = colors.lightGray,
         thememt = colors.black, themelb = colors.lightGray, themelt = colors.white, themecdt = colors.blue,
         themese = colors.gray, themesb = colors.black, themenill = colors.green, themenil = colors.green }}
-return function(stargate, Gates, display)
+return function(stargate, Gates, display, shell)
     local display = display or term
     local w, h = display.getSize()
     local localType = stargate.getGateType()
@@ -942,48 +942,52 @@ return function(stargate, Gates, display)
 		local startX = 13
 		local releaseList = {}	local isFetching = false
 		local function fetchAllReleases()
-			if isFetching then return end
-			isFetching = true
-			local response = http.get("https://api.github.com/repos/evilcarrotoverlord/gateOS/releases")				
-			if response then
-				local contents = response.readAll()
-				response.close()
-				local data = textutils.unserialiseJSON(contents)					
-				releaseList = {}
-				if data then
-					for i, release in ipairs(data) do
-						local downloadUrl = nil
-						for _, asset in ipairs(release.assets or {}) do
-							if asset.name == "installer.lua" then
-								downloadUrl = asset.browser_download_url
-								break
-							end
-						end							
-						table.insert(releaseList, {
-							label = (release.name or release.tag_name):upper(),
-							color = (i == 1) and colors.cyan or colors.lightGray,
-							action = function()
-								if downloadUrl then
-									ui.clear()
-									display.setCursorPos(1, 1)
-									print("Downloading: " .. release.name)
-									local res = http.get(downloadUrl)
-									if res then
-										local f = fs.open("installer.lua", "w")
-										f.write(res.readAll())
-										f.close()
-										res.close()
+		if isFetching then return end
+		isFetching = true
+		local response = http.get("https://api.github.com/repos/evilcarrotoverlord/gateOS/releases")		
+		if response then
+			local contents = response.readAll()
+			response.close()
+			local data = textutils.unserialiseJSON(contents)			
+			releaseList = {}
+			if data then
+				for i, release in ipairs(data) do
+					local downloadUrl = nil
+					for _, asset in ipairs(release.assets or {}) do
+						if asset.name == "installer.lua" then
+							downloadUrl = asset.browser_download_url
+							break
+						end
+					end					
+					table.insert(releaseList, {
+						label = (release.name or release.tag_name):upper(),
+						color = (i == 1) and colors.cyan or colors.lightGray,
+						action = function()
+							if downloadUrl then
+								ui.clear()
+								display.setCursorPos(1, 1)
+								print("Downloading: " .. release.name)
+								local res = http.get(downloadUrl)
+								if res then
+									local f = fs.open("installer.lua", "w")
+									f.write(res.readAll())
+									f.close()
+									res.close()
+									if shell then
 										shell.run("installer.lua")
-										os.reboot()
+									else
+										os.run({}, "installer.lua")
 									end
+									os.reboot()
 								end
 							end
-						})
-					end
+						end
+					})
 				end
 			end
-			isFetching = false
 		end
+		isFetching = false
+	end
 		local function renderReleaseList()
 			local startY = 5
 			local startX = 13
