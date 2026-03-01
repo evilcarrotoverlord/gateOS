@@ -1,13 +1,5 @@
-local version, stargate, display = "v1.1"
 local stargate, display
-_G.Logger = { 
-    file = "Logger.log", 
-    maxLines = 64, 
-    lastTime = "", 
-    lastColor = colors.white,
-    eventBuffer = {},
-    maxBuffer = 20
-}
+_G.Logger = { file = "Logger.log", maxLines = 64, lastTime = "", lastColor = colors.white, eventBuffer = {}, maxBuffer = 20}
 _G.DEBUG_MODE = true
 function Logger.log(msg, tag, adv)
 	local tag = tag and tag:upper() or "INFO"
@@ -60,7 +52,6 @@ term.reset = function()
     term.clear()
     term.setCursorPos(1, 1)
 end
-
 function initialize()
     Logger.log("==========Booting GateOS==========", "SYS", true)
     local ok, book = pcall(require, "gates")
@@ -84,7 +75,6 @@ function initialize()
     else
         Logger.log("Gate-Renderer missing - Graphics may be degraded", "WARN")
     end
-	
 	if not ok_sg then
         Logger.log("Library 'lib/stargate' is missing!", "CRIT")
         return false, {}
@@ -97,58 +87,68 @@ function initialize()
     return stargate ~= nil, addressBook
 end
 function runSandboxed(addressBook)
-		local env = setmetatable({
-			Logger = Logger,
-			display = display,
-			stargate = stargate,
-			viewLogs = viewLogs,
-		}, { __index = _G })
-		setfenv(MainMenu, env)
-		return MainMenu(stargate, addressBook, display, _shell)
-	end
+    local env = setmetatable({
+        Logger = Logger,
+        display = display,
+        stargate = stargate,
+        viewLogs = viewLogs,
+    }, { __index = _G })
+    setfenv(MainMenu, env)
+    return MainMenu(stargate, addressBook, display)
+end
 function viewLogs()
-    display.setBackgroundColor(colors.black) display.clear()    
-    if not fs.exists(Logger.file) then
-        display.setCursorPos(1, 1)
-        display.write("No logs found.")
-        os.pullEvent() 
-        return
-    end
-    local f = fs.open(Logger.file, "r")
-    local lines = {}
-    local line = f.readLine()
-    while line do table.insert(lines, line) line = f.readLine() end
-    f.close()
-    local w, h = display.getSize()
-    local startLine = math.max(1, #lines - (h - 2))
-    local activeColor = colors.white
-    for i = 1, #lines do
-        local l = lines[i]
-        if not l:find("^/\\|") then
-            if l:find("CRIT:") or l:find("ERR:") then 
-                activeColor = colors.red
-            elseif l:find("SYS:") or l:find("HARDWARE:") then 
-                activeColor = colors.yellow
-            else 
-                activeColor = colors.white 
-            end
-        end
-        if i >= startLine then
-            local y = i - startLine + 1
-            display.setCursorPos(1, y)
-            display.setTextColor(activeColor)
-            display.write(l:sub(1, w))
-        end
-    end
-    display.setCursorPos(1, h)
-    display.setBackgroundColor(colors.gray)
-    display.setTextColor(colors.black)
-    display.write(" TOUCH ANYWHERE OR PRESS ANY KEY TO RETURN " .. string.rep(" ", w))
-    local event
-    repeat
-        event = os.pullEvent()
-    until event == "key" or event == "mouse_click" or event == "monitor_touch"
-    display.setBackgroundColor(colors.black) display.clear()    
+	display.setBackgroundColor(colors.black)
+	display.clear()    
+	if not fs.exists(Logger.file) then
+		display.setCursorPos(1, 1)
+		display.write("No logs found.")
+		os.pullEvent() 
+		return
+	end
+	local f = fs.open(Logger.file, "r")
+	local rawLines = {}
+	local line = f.readLine()
+	while line do 
+		table.insert(rawLines, line) 
+		line = f.readLine() 
+	end
+	f.close()
+	local w, h = display.getSize()
+	local wrappedLines = {}
+	local activeColor = colors.white
+	for _, l in ipairs(rawLines) do
+		if not l:find("^/\\|") then
+			if l:find("CRIT:") or l:find("ERR:") then 
+				activeColor = colors.red
+			elseif l:find("SYS:") or l:find("HARDWARE:") then 
+				activeColor = colors.yellow
+			else 
+				activeColor = colors.white 
+			end
+		end
+		local tempLine = l
+		while #tempLine > 0 do
+			table.insert(wrappedLines, { text = tempLine:sub(1, w), color = activeColor })
+			tempLine = tempLine:sub(w + 1)
+		end
+	end
+	local startLine = math.max(1, #wrappedLines - (h - 2))
+	for i = startLine, #wrappedLines do
+		local y = i - startLine + 1
+		local data = wrappedLines[i]
+		display.setCursorPos(1, y)
+		display.setTextColor(data.color)
+		display.write(data.text)
+	end
+	display.setCursorPos(1, h)
+	display.setBackgroundColor(colors.gray)
+	display.setTextColor(colors.black)
+	display.write(" INTERACT TO RETURN " .. string.rep(" ", w - 19))
+	repeat
+		local event = os.pullEvent()
+	until event == "key" or event == "mouse_click" or event == "monitor_touch"
+	display.setBackgroundColor(colors.black)
+	display.clear()    
 end
 function Logger.getLastLog()
     if not fs.exists(Logger.file) then 
@@ -166,7 +166,6 @@ function Logger.getLastLog()
     if #lines == 0 then 
         return "Empty log", colors.gray 
     end
-
     local last = lines[#lines]
     local col = colors.white
     if last:find("CRIT") or last:find("ERR") then 
@@ -192,7 +191,6 @@ function main()
         return
     end
     term.clear()
-    local status, err = pcall(runSandboxed, addressBook)
     local status, err = pcall(runSandboxed, addressBook)
     if not status then
         if err == "Terminated" then
