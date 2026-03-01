@@ -38,22 +38,21 @@ function GateRenderer.getBufferCell(x, y)
     return nil
 end
 function GateRenderer.init()
-    if not w or not h then GateRenderer.setTarget(term) end
-    Buffer = {} 
-    for y = 1, h do
-        Buffer[y] = {}
-        for x = 1, w do
-            Buffer[y][x] = {colors.black, colors.black, " "}
-        end
-    end
+	if not w or not h then GateRenderer.setTarget(term) end
+	Buffer = {} 
+	for y = 1, h do
+		Buffer[y] = {}
+		for x = 1, w do
+			Buffer[y][x] = {colors.black, colors.black, " ", 0}
+		end
+	end
 end
 function GateRenderer.set(x, y, col)
     if x < 1 or x > w or y < 1 or y > vH then return end
     if not Buffer[1] then GateRenderer.init() end
     local group = math.floor((y - 1) / 3)
     local subY = (y - 1) % 3
-    
-    if subY == 0 then
+	if subY == 0 then
         local row = group * 2 + 1
         if Buffer[row] then
             Buffer[row][x][1] = col
@@ -71,25 +70,39 @@ function GateRenderer.set(x, y, col)
         if Buffer[row] then Buffer[row][x][2] = col end
     end
 end
-function GateRenderer.drawRLE(sizex, sizey, rle_string, startX, startY, color)
-    local first, counts = rle_string:match("^(%d):(.+)$")
-    if not first then return end
-    
-    local bit = tonumber(first)
-    local x, y = 0, 0
-    for count in counts:gmatch("(%d+)") do
-        for i = 1, tonumber(count) do
-            if bit == 1 then
-                GateRenderer.set(startX + x, startY + y, color)
-            end
-            x = x + 1
-            if x >= sizex then 
-                x = 0
-                y = y + 1 
-            end
-        end
-        bit = 1 - bit
-    end
+local function setSubpixel(x, y, col)
+	local charX = math.floor((x - 1) / 2) + 1
+	local charY = math.floor((y - 1) / 3) + 1
+	if charX < 1 or charX > w or charY < 1 or charY > h then return end
+	local subX = (x - 1) % 2
+	local subY = (y - 1) % 3
+	local bit = 2 ^ (subX + subY * 2)
+	local cell = Buffer[charY][charX]
+	cell.mask = bit32.bor(cell.mask or 0, bit)
+	cell.fg = col
+end
+function GateRenderer.drawRLE(sizex, sizey, rle_string, startX, startY, color, useSubpixels)
+	local first, counts = rle_string:match("^(%d):(.+)$")
+	if not first then return end
+	local bit = tonumber(first)
+	local x, y = 0, 0
+	for count in counts:gmatch("(%d+)") do
+		for i = 1, tonumber(count) do
+			if bit == 1 then
+				if useSubpixels then
+					setSubpixel(startX + x, startY + y, color)
+				else
+					GateRenderer.set(startX + x, startY + y, color)
+				end
+			end
+			x = x + 1
+			if x >= sizex then 
+				x = 0
+				y = y + 1 
+			end
+		end
+		bit = 1 - bit
+	end
 end
 function GateRenderer.saveRLE(data_table)
     local firstBit = data_table[1] or 0
@@ -120,17 +133,29 @@ function GateRenderer.drawCircle(centerX, centerY, radius, col)
     end
 end
 function GateRenderer.render()
-    for y = 1, h do
-        for x = 1, w do
-            local cell = Buffer[y][x]
-            if cell[3] ~= " " or cell[2] ~= colors.black then
-                setCursor(x, y)
-                setFG(cell[1])
-                setBG(cell[2])
-                write(cell[3])
-            end
-        end
-    end
+	for y = 1, h do
+		for x = 1, w do
+			local cell = Buffer[y][x]
+			local char = cell[3]
+			local fg = cell[1]
+			local bg = cell[2]
+			if cell.mask and cell.mask > 0 then
+				local mask = cell.mask
+				fg = cell.fg or fg
+				if bit32.band(mask, 32) ~= 0 then
+					mask = bit32.band(bit32.bnot(mask), 63)
+					fg, bg = bg, fg
+				end
+				char = string.char(128 + mask)
+			end
+			if char ~= " " or bg ~= colors.black then
+				setCursor(x, y)
+				setFG(fg)
+				setBG(bg)
+				write(char)
+			end
+		end
+	end
 end
 local function drawPowerBar(x, y, height, percentage)
     local fill = math.floor(height * 3 * percentage)
@@ -143,22 +168,60 @@ local function drawPowerBar(x, y, height, percentage)
     end
 end
 function GateRenderer.clear(col)
-    local c = col or colors.black
-    for y = 1, h do
-        for x = 1, w do Buffer[y][x] = {c, c, " "} end
-    end
+	local c = col or colors.black
+	for y = 1, h do
+		for x = 1, w do 
+			Buffer[y][x] = {c, c, " ", 0} 
+		end
+	end
+end
+local function drawGlyphHD(gateType, glyphID, centerX, centerY, activeColor)
+	if glyphID == nil then return end
+	local universe = glyph_data[gateType] or glyph_data[gateType:lower()]
+	if not universe then return end
+	if tonumber(glyphID) == 99 then
+		local keys = {}
+		for k, _ in pairs(universe) do table.insert(keys, k) end
+		glyphID = keys[math.random(#keys)]
+	end
+	local entry = universe[tostring(glyphID)] or universe[tonumber(glyphID)]
+	if not entry then return end
+	local rle_full = entry[2]
+	local rle_to_use = rle_full
+	for part in string.gmatch(rle_full, "([^|]+)") do
+		if string.sub(part, 1, 2) == "1:" then
+			rle_to_use = part
+			break
+		end
+	end
+	local subX = (centerX - 3) * 2 - 3
+	local subY = (centerY + 3)
+	GateRenderer.drawRLE(18, 18, rle_to_use, subX, subY, activeColor, true)
 end
 local function drawGlyph(gateType, glyphID, centerX, centerY, activeColor)
-	if glyphID == nil then return end
-    local universe = glyph_data[gateType] or glyph_data[gateType:lower()]
-    if not universe then return end
-    local entry = universe[tostring(glyphID)] or universe[tonumber(glyphID)]
-    if not entry then return end
-    local rle_string = entry[2]
-    local startX = centerX - 4
-    local startY = centerY - 4
-    GateRenderer.drawRLE(9, 9, rle_string, startX, startY, activeColor)
+	if not glyphID then return end
+	local universe = glyph_data[gateType] or glyph_data[gateType:lower()]
+	if not universe then return end
+	if tonumber(glyphID) == 99 then
+		local keys = {}
+		for k, _ in pairs(universe) do table.insert(keys, k) end
+		glyphID = keys[math.random(#keys)]
+	end
+	local entry = universe[tostring(glyphID)] or universe[tonumber(glyphID)]
+	if not entry then return end
+	local rle_full = entry[2]
+	local rle_to_use = rle_full
+	for part in string.gmatch(rle_full, "([^|]+)") do
+		if string.sub(part, 1, 2) == "0:" then
+			rle_to_use = string.sub(part, 3)
+			break
+		end
+	end
+	local subX = (centerX - 1) * 2 - 3
+	local subY = (centerY - 1) * 3 - 3
+	GateRenderer.drawRLE(9, 9, rle_to_use, subX, subY, activeColor, true)
 end
+GateRenderer.drawGlyphHD = drawGlyphHD
 GateRenderer.drawGlyph = drawGlyph
 local function drawGateFrame(gateType, lockedChevrons, activeColor, centerX, centerY)
     local startX, startY = centerX - 8, centerY - 8
@@ -197,43 +260,44 @@ function GateRenderer.draw(lockedChevrons, gateType, centerX, centerY, gateOpen,
     local activeColor = colors_map[gateType] or colors.orange
     local horizonColor = colors.lightBlue
     local irisColor = colors_map[irisMaterial] or colors.lightGray
-    local isAnimating = false
-	if irisState == "CLOSING" and lastIrisState ~= "CLOSED" then
-        isAnimating = true
-        for r = 7, 0, -1 do
-            GateRenderer.clear(colors.black)
-            GateRenderer.drawCircle(centerX, centerY, 7, irisColor, true)
-            local holeColor = gateOpen and horizonColor or colors.black
-            if r > 0 then
-                GateRenderer.drawCircle(centerX, centerY, r, holeColor, true)
-            end            
-            drawGlyph(gateType, glyphID, centerX, centerY, activeColor) 
-            drawGateFrame(gateType, lockedChevrons, activeColor, centerX, centerY)            
-            sleep(0.3)
-            GateRenderer.render()
-        end
-        lastIrisState = "CLOSED" 
-    elseif irisState == "OPENING" and lastIrisState ~= "OPENED" then
-        isAnimating = true
-        local revealColor = gateOpen and horizonColor or colors.black
-        for r = 0, 7 do
-            GateRenderer.clear(colors.black)
-            GateRenderer.drawCircle(centerX, centerY, 7, irisColor, true)
-            GateRenderer.drawCircle(centerX, centerY, r, revealColor, true)
-            drawGlyph(gateType, glyphID, centerX, centerY, activeColor) 
-            drawGateFrame(gateType, lockedChevrons, activeColor, centerX, centerY)            
-            sleep(0.3)
-            GateRenderer.render()
-        end
-        lastIrisState = "OPENED"
-    end
+	local isAnimating = false
+	local duration = (irisMaterial == "SHIELD") and 0.01 or 0.3
+    if irisState == "CLOSING" and lastIrisState ~= "CLOSED" then
+		isAnimating = true
+		for r = 7, 0, -1 do
+			GateRenderer.clear(colors.black)
+			GateRenderer.drawCircle(centerX, centerY, 7, irisColor, true)
+			local holeColor = gateOpen and horizonColor or colors.black
+			if r > 0 then
+				GateRenderer.drawCircle(centerX, centerY, r, holeColor, true)
+			end			
+			drawGlyphHD(gateType, glyphID, centerX, centerY, activeColor) 
+			drawGateFrame(gateType, lockedChevrons, activeColor, centerX, centerY)			
+			sleep(duration)
+			GateRenderer.render()
+		end
+		lastIrisState = "CLOSED" 
+	elseif irisState == "OPENING" and lastIrisState ~= "OPENED" then
+		isAnimating = true
+		local revealColor = gateOpen and horizonColor or colors.black
+		for r = 0, 7 do
+			GateRenderer.clear(colors.black)
+			GateRenderer.drawCircle(centerX, centerY, 7, irisColor, true)
+			GateRenderer.drawCircle(centerX, centerY, r, revealColor, true)
+			drawGlyphHD(gateType, glyphID, centerX, centerY, activeColor) 
+			drawGateFrame(gateType, lockedChevrons, activeColor, centerX, centerY)			
+			sleep(duration)
+			GateRenderer.render()
+		end
+		lastIrisState = "OPENED"
+	end
     if not isAnimating and lastIrisState == "OPENED" then
         if gateOpen and not wasGateOpen then
             isAnimating = true
             for r = 7, 1, -1 do
                 GateRenderer.drawCircle(centerX, centerY, 7, horizonColor, true)
                 GateRenderer.drawCircle(centerX, centerY, r, colors.black, true)
-                drawGlyph(gateType, glyphID, centerX, centerY, activeColor)
+                drawGlyphHD(gateType, glyphID, centerX, centerY, activeColor)
                 drawGateFrame(gateType, lockedChevrons, activeColor, centerX, centerY)
                 sleep(0.1)
 				GateRenderer.render()
@@ -250,7 +314,7 @@ function GateRenderer.draw(lockedChevrons, gateType, centerX, centerY, gateOpen,
             for r = 1, 7 do
                 GateRenderer.drawCircle(centerX, centerY, 7, horizonColor, true)
                 GateRenderer.drawCircle(centerX, centerY, r, colors.black, true)
-                drawGlyph(gateType, glyphID, centerX, centerY, activeColor)
+                drawGlyphHD(gateType, glyphID, centerX, centerY, activeColor)
                 drawGateFrame(gateType, lockedChevrons, activeColor, centerX, centerY)
                 sleep(0.05)
 				GateRenderer.render()
@@ -267,7 +331,7 @@ function GateRenderer.draw(lockedChevrons, gateType, centerX, centerY, gateOpen,
             bgColor = horizonColor
         end
         GateRenderer.drawCircle(centerX, centerY, 7, bgColor, true)
-        drawGlyph(gateType, glyphID, centerX, centerY, activeColor)
+        drawGlyphHD(gateType, glyphID, centerX, centerY, activeColor)
         drawGateFrame(gateType, lockedChevrons, activeColor, centerX, centerY)
         GateRenderer.render()
     end
