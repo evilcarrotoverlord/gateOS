@@ -10,14 +10,39 @@ function Stargate.connect(config)
     local gate = {}
     local _stargate = peripheral.find("stargate")
     local gateDelays = {MilkyWay = 2.0, Pegasus = 0.1, Universe = 0.5, Tollan = 0.1, Movie = 2.0 }
-    if not _stargate then
-        if _G.Logger then _G.Logger.log("Failed to find stargate peripheral", "HARDWARE", true) end
-        return false 
+	if not _stargate then
+        if _G.Logger then _G.Logger.log("No Stargate found!") end
+        return {
+            getGateType = function() return "No Gate" end,
+            getEnergy = function() return 0 end,
+            getMaxEnergy = function() return 1 end,
+            getStatusString = function() return "OFFLINE" end,
+            getIrisType = function() return "None" end,
+            glyphID = function() return nil end,
+            handleEvents = function() end,
+            disengage = function() end,
+            getEnergyRequiredToDial = function() return "0" end,
+            onDialAddress = function() return false, "No Gate" end,
+            getLockedString = function() return "" end,
+            config = config or {}
+        }
     end
     function gate.applyDialDelay()
 		local gType = gate.getGateType()
 		local delay = gateDelays[gType] or 2.0
 		os.sleep(delay)
+	end
+	function gate.getStargateAddress()
+		if _stargate and _stargate.getStargateAddress then
+			return _stargate.getStargateAddress()
+		end
+		return nil
+	end
+	function gate.getNearbyGates(gateType, ignoreGateType, checkAddressAndEnergy)
+		if _stargate and _stargate.getNearbyGates then
+			return _stargate.getNearbyGates(gateType or "", ignoreGateType, checkAddressAndEnergy)
+		end
+		return false, "Peripheral method not found", {}
 	end
     local localType = _stargate.getGateType()
 	local function formatEnergy(value)
@@ -29,36 +54,12 @@ function Stargate.connect(config)
 			return string.format("%d FE", math.floor(value))
 		end
 	end
-	function gate.canAffordDial(address)
-		local success, response, energyMap = _stargate.getEnergyRequiredToDial(address)		
-		if not success then
-			if response == "address_malformed" then
-				return false, "Invalid Address Format"
-			elseif response == "stargate_busy" then
-				return false, "Stargate is Busy"
-			else
-				return false, "Dial Check Failed: " .. tostring(response)
-			end
-		end
-		if response == "energy_map" and energyMap then
-			local currentPower = gate.getEnergy()
-			local buffer = energyMap.keepAlive * 5			
-			if energyMap.canOpen and currentPower >= (energyMap.open + buffer) then
-				return true
-			else
-				local needed = energyMap.open + buffer
-				local diff = needed - currentPower
-				return false, string.format("Insufficient Energy: Need %s more", formatEnergy(diff))
-			end
-		end
-		return false, "Unknown Dialing Error"
-	end
 	local function getGateTypeLabel()
         if localType == "Pegasus" then return "Pegasus"
         elseif localType == "Universe" then return "Universe"
         else return "MilkyWay" end
     end    
-	function gate.getEnergyRequiredToDial(address) 
+	function gate.getEnergyRequiredToDial(address)
 		return _stargate.getEnergyRequiredToDial(address) 
 	end
     function gate.engage() return _stargate.engageGate end
@@ -83,6 +84,9 @@ function Stargate.connect(config)
 			return _stargate.getMaxEnergyStored() or 1
 		end
 		return 1
+	end
+	function gate.dialQueue()
+		return gate.dialQueue() or nill
 	end
     function gate.getStatusString()
         local state = _stargate.getIrisState()
@@ -118,7 +122,6 @@ function Stargate.connect(config)
         if _G.Logger then _G.Logger.log("Iris Mode changed to: " .. gate.config.irisMode, "SYS") end
         return gate.config.irisMode
     end
-    function gate.getDialedAddress() return _stargate.getDialedAddress() end
     function gate.getIrisState() return _stargate.getIrisState() end
     function gate.toggleIris() _stargate.toggleIris() end
     function gate.getIrisType() return _stargate.getIrisType() end
@@ -142,33 +145,60 @@ function Stargate.connect(config)
 		Logger.log("dialed address: " .. tostring(address), "SYS")
 		return address
 	end
-	function gate.onDialAddress(entry, renderCallback)
-		local displayName = entry.name or "Unknown Gate"
-		local currentGateType = gate.getGateType()
-		local targetStr = table.concat(gate.dialQueue or {}, "-")
-		Logger.log("Dialing " .. targetStr .. ": [" .. displayName .. "]", "SYS")
+	function gate.canAffordDial(address, cachedEnergy)
+		local energyMap = cachedEnergy		
+		if not energyMap then
+			local success, response, eMap = _stargate.getEnergyRequiredToDial(address)		
+			if not success then
+				return false, "Dial Check Failed: " .. tostring(response)
+			end
+			energyMap = eMap
+		end
+		if type(energyMap) == "table" then
+			local currentPower = gate.getEnergy()
+			local buffer = (energyMap.keepAlive or 0) * 5			
+			if currentPower >= (energyMap.open + buffer) then
+				return true
+			else
+				local needed = energyMap.open + buffer
+				local diff = needed - currentPower
+				if _G.Logger then _G.Logger.log("getting energymap", "SYS") end
+				return false, string.format("Insufficient Energy: Need %s more", formatEnergy(diff))
+			end
+		elseif type(energyMap) == "number" then
+			if gate.getEnergy() >= energyMap then return true end
+			return false, "Insufficient Energy"
+		end
+		return false, "Unknown Dialing Error"
+	end
+	function gate.onDialAddress(entry, cachedEnergy, renderCallback)
 		local destType = entry.gateType
 		local addressToUse = entry.addresses[detectedType]		
 		if not addressToUse then 
 			if _G.Logger then _G.Logger.log("Dial Fail: No address for " .. detectedType, "ERR") end
 			return false 
 		end
-        local totalLength = 7
-        if detectedType == "Universe" or destType == "Universe" then totalLength = 9
-        elseif (detectedType == "MilkyWay" and destType == "Pegasus") or (detectedType == "Pegasus" and destType == "MilkyWay") then totalLength = 8
-        elseif entry.isIntergalactic then totalLength = 8 end
-        local symbolsNeededFromBook = totalLength - 1
-        local finalAddress = {}
-        for i = 1, symbolsNeededFromBook do finalAddress[i] = addressToUse[i] end
-		
-        local success, data = gate.resolveAddress(finalAddress)
-		if not success then
-			if _G.Logger then _G.Logger.log("Invalid Address: " .. (data.error or "Unknown"), "") end
-			return false, "INVALID_ADDRESS"
+		local totalLength = 7
+		if detectedType == "Universe" or destType == "Universe" then totalLength = 9
+		elseif (detectedType == "MilkyWay" and destType == "Pegasus") or (detectedType == "Pegasus" and destType == "MilkyWay") then totalLength = 8
+		elseif entry.isIntergalactic then totalLength = 8 end
+		local symbolsNeededFromBook = totalLength - 1
+		local finalAddress = {}
+		for i = 1, symbolsNeededFromBook do finalAddress[i] = addressToUse[i] end
+		local dialQueue = {}
+		if cachedEnergy then
+			dialQueue = finalAddress
+		else
+			local success, data = gate.resolveAddress(finalAddress)
+			if not success then
+				if _G.Logger then _G.Logger.log("Invalid Address: " .. (data.error or "Unknown"), "") end
+				return false, "INVALID_ADDRESS"
+			end
+			dialQueue = data.address
 		end
-		gate.dialQueue = data.address
+		gate.dialQueue = dialQueue
 		table.insert(gate.dialQueue, pointsOfOrigin[detectedType] or "Point of Origin")
-		local canDial, errReason = gate.canAffordDial(finalAddress)
+		local canDial, errReason = gate.canAffordDial(finalAddress, cachedEnergy)
 		if not canDial then
 			if _G.Logger then _G.Logger.log("Power Error: " .. errReason, "") end
 			return false, errReason
@@ -176,18 +206,16 @@ function Stargate.connect(config)
 		gate.isDialing = true
 		gate.currentDialIndex = 1
 		gate.renderCallback = renderCallback
+		
 		local status, err = pcall(function() _stargate.engageSymbol(gate.dialQueue[1]) end)		
 		if status then
-			if gate.renderCallback then
-				gate.renderCallback(1, gate.dialQueue, false)
-			end
+			if gate.renderCallback then gate.renderCallback(1, gate.dialQueue, false) end
 		else
-			if _G.Logger then _G.Logger.log("Engage Error: " .. tostring(err), "ERR") end
 			gate.isDialing = false
-			return false
+			return false, "Engage Error"
 		end
-        return true
-    end
+		return true
+	end
 	function gate.onChevronLit(chevronIndex)
 		if not gate.isDialing then return end
 		if gate.currentDialIndex < #gate.dialQueue then
