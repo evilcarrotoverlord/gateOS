@@ -49,8 +49,27 @@ for _, path in ipairs(allFiles) do
 end
 out.writeLine([[
 local term = term
+local monitor = peripheral.find("monitor")
 local w, h = term.getSize()
+if monitor then
+	monitor.setTextScale(1)
+end
+local multiTerm = {}
+local targets = {term}
+if monitor then table.insert(targets, monitor) end
 
+local functions = {"write", "scroll", "setCursorPos", "setCursorBlink", "setBackgroundColor", "setTextColor", "clear", "clearLine", "setTextScale"}
+for _, name in ipairs(functions) do
+	multiTerm[name] = function(...)
+		for _, t in ipairs(targets) do
+			if t[name] then t[name](...) end
+		end
+	end
+end
+multiTerm.getSize = function()
+	return term.getSize()
+end
+local term = multiTerm
 local function getExistingVersion()
 	local path = "lib/main-menu.lua"
 	if fs.exists(path) then
