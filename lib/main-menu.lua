@@ -1,4 +1,4 @@
-_G.OS_VERSION = "1.0"
+_G.OS_VERSION = "1.02"
 local GUI = require("lib/gui")
 local GateRenderer = require("lib/gate-renderer")
 local glyph_data = require("lib/glyph")
@@ -45,8 +45,7 @@ return function(stargate, Gates, display, shell)
         if f then
             local rawData = f.readAll()
             f.close()
-            local data = textutils.unserialize(rawData)
-            
+            local data = textutils.unserialize(rawData)            
             if type(data) == "table" then 
 				config.gateName = data.gateName or "Gate"
                 config.debug = data.debug or false 
@@ -61,12 +60,14 @@ return function(stargate, Gates, display, shell)
             end
         end
     end
-    local function getGateTypeLabel()
-        local gType = stargate.getGateType()
-        if gType == "Pegasus" then return "Pegasus"
-        elseif gType == "Universe" then return "Universe"
-        else return "MilkyWay" end
-    end
+	local function getGateTypeLabel()
+		local gType = stargate.getGateType()
+		if gType == "Pegasus" then
+			return "Pegasus"
+		elseif gType == "Universe" then
+			return "Universe"
+		else return "MilkyWay" end
+	end	
 	function self.updateEnergyCache(addressName)
 		if energyCache[addressName] then return end		
 		local entry = Gates[addressName]
@@ -1073,18 +1074,30 @@ return function(stargate, Gates, display, shell)
 		display.setCursorPos(22, 1) 
 		display.setTextColor(config.theme.thememt)
 		display.write("[New] ")
-		ui.registerArea(22, 1, 5, 1, addNewEntry)
+		ui.registerArea(22, 1, 5, 1, function()
+			if not dialingState.active then
+				addNewEntry()
+			end
+		end)
 		if selectedAddress and Gates[selectedAddress] then
 			display.setCursorPos(28, 1)
 			display.write("[Edit] ")
-			ui.registerArea(28, 1, 6, 1, editEntry)
+			ui.registerArea(28, 1, 6, 1, function()
+				if not dialingState.active then
+					editEntry(selectedAddress)
+				end
+			end)
 		else
 			display.setCursorPos(28, 1)
 			display.write("       ")
 		end
 		display.setCursorPos(35, 1)
 		display.write("[Options] ")
-		ui.registerArea(35, 1, 9, 1, function() self.openOptions() end)
+		ui.registerArea(35, 1, 9, 1, function()
+			if not dialingState.active then
+				self.openOptions()
+			end
+		end)
 		if quitConfirmed then
 			display.setTextColor(colors.red)
 		else
@@ -1140,15 +1153,22 @@ return function(stargate, Gates, display, shell)
 		end	
 		if selectedAddress and Gates[selectedAddress] then
 			local entry = Gates[selectedAddress]
-			local success, err = stargate.onDialAddress(entry, energyCache[selectedAddress])
-			if success then
-				dialingState.active = true
-				local duration = (localType == "Universe") and 8 or 4
-				busyTimer = os.startTimer(duration)
-				Logger.log("Dialing: " .. selectedAddress, "")
-			else
+			local gateTypeLabel = getGateTypeLabel()
+			local addr = entry.addresses and entry.addresses[gateTypeLabel]
+			if not addr or #addr == 0 then
 				dialingState.active = false
-				Logger.log("Dial Fail: " .. (err or "Unknown"), "")
+				Logger.log("No Address: " .. gateTypeLabel .. "")
+			else
+				local success, err = stargate.onDialAddress(entry, energyCache[selectedAddress])
+				if success then
+					dialingState.active = true
+					local duration = (localType == "Universe") and 8 or 4
+					busyTimer = os.startTimer(duration)
+					Logger.log("Dialing: " .. selectedAddress, "")
+				else
+					dialingState.active = false
+					Logger.log("Dial Fail: " .. (err or "Unknown"), "")
+				end
 			end
 		end
 		self.renderMenu()
