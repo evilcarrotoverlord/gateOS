@@ -177,7 +177,11 @@ function GateRenderer.clear(col)
 end
 local function drawGlyphHD(gateType, glyphID, centerX, centerY, activeColor)
 	if glyphID == nil then return end
-	local universe = glyph_data[gateType] or glyph_data[gateType:lower()]
+	local lookupType = gateType
+	if gateType ~= "Pegasus" and gateType ~= "Universe" then
+		lookupType = "MilkyWay"
+	end
+	local universe = glyph_data[lookupType] or glyph_data[lookupType:lower()]
 	if not universe then return end
 	if tonumber(glyphID) == 99 then
 		local keys = {}
@@ -200,7 +204,11 @@ local function drawGlyphHD(gateType, glyphID, centerX, centerY, activeColor)
 end
 local function drawGlyph(gateType, glyphID, centerX, centerY, activeColor)
 	if not glyphID then return end
-	local universe = glyph_data[gateType] or glyph_data[gateType:lower()]
+	local lookupType = gateType
+	if gateType ~= "Pegasus" and gateType ~= "Universe" then
+		lookupType = "MilkyWay"
+	end
+	local universe = glyph_data[lookupType] or glyph_data[lookupType:lower()]
 	if not universe then return end
 	if tonumber(glyphID) == 99 then
 		local keys = {}
