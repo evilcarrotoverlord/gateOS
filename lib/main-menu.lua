@@ -132,7 +132,7 @@ return function(stargate, Gates, display, shell)
 	local sortedKeys = {}
     for name in pairs(Gates) do table.insert(sortedKeys, name) end
     local totalGates = #sortedKeys
-		for i, name in ipairs(sortedKeys) do
+	for i, name in ipairs(sortedKeys) do
 		display.setBackgroundColor(colors.black)
 		local barW = 20
 		local progressRatio = i / totalGates
@@ -147,8 +147,8 @@ return function(stargate, Gates, display, shell)
 		end
 		display.setBackgroundColor(colors.gray)
 		for y,x,l in ("032A07042909052902053002062902063101072905082A07090404090A02090F01091302092D050A04010A0C010A0E030A12010A15010A29010A30020B04010B06020B0A030B0F010B12040B29020B30020C04010C07010C09010C0C010C0F010C12010C29090D04040D0A030D10010D13030D2A07"):gmatch"(..)(..)(..)" do
-			display.setCursorPos(tonumber(x,16), tonumber(y,16))
-			display.write((" "):rep(tonumber(l,16)))
+			display.setCursorPos(tonumber(x, 16), tonumber(y, 16))
+			display.write((" "):rep(tonumber(l, 16)))
 		end
 		display.setBackgroundColor(colors.black)
 		display.setTextColor(colors.gray)
@@ -164,9 +164,11 @@ return function(stargate, Gates, display, shell)
 		display.setTextColor(colors.green)
 		display.write(string.rep("\140", progressPercent))
 		display.setBackgroundColor(colors.black)
+		display.setCursorPos(1, 16)
+		display.write((" "):rep(w))
 		display.setTextColor(colors.white)
 		local statusText = "Initializing: " .. name
-		display.setCursorPos(math.floor(26 - (#statusText/2)), 16)
+		display.setCursorPos(math.floor(26 - (#statusText / 2)), 16)
 		display.write(statusText)
 		local verText = "v" .. (_G.OS_VERSION or "1.0")
 		display.setTextColor(colors.gray)
@@ -585,8 +587,7 @@ return function(stargate, Gates, display, shell)
 			title = "External Storage Manager",
 			customRender = renderDiskContent
 			})
-	end
-	
+	end	
 	local function openScannerWindow()
 		local scanPage = 1
 		local itemsPerPage = 5
@@ -1522,10 +1523,10 @@ return function(stargate, Gates, display, shell)
 				return false
 			end
 			local function fetchAllReleases()
-				if isFetching then return end
-				isFetching = true
-				currentReleasePage = 1
-				local response = http.get("https://api.github.com/repos/evilcarrotoverlord/gateOS/releases")
+			if isFetching then return end
+			isFetching = true
+			currentReleasePage = 1
+			local response = http.get("https://api.github.com/repos/evilcarrotoverlord/gateOS/releases")
 				if response then
 					local contents = response.readAll()
 					response.close()
@@ -1535,14 +1536,16 @@ return function(stargate, Gates, display, shell)
 						local currentOSClean = getCleanVersion(_G.OS_VERSION)
 						for i, release in ipairs(data) do
 							local relName = (release.name or release.tag_name or "Unknown")
+							local relDescription = release.body or "No description provided."
 							local relClean = getCleanVersion(relName)
 							local downloadUrl = nil
+							
 							for _, asset in ipairs(release.assets or {}) do
 								if asset.name == "installer.lua" then
 									downloadUrl = asset.browser_download_url
 									break
 								end
-							end							
+							end	
 							local textColor = colors.white
 							local bgColor = colors.gray
 							local isCurrent = (relClean == currentOSClean)
@@ -1559,26 +1562,96 @@ return function(stargate, Gates, display, shell)
 								isCurrent = isCurrent,
 								isNewUpdate = isActualUpdate,
 								action = function()
-									if downloadUrl then
-										ui.clear()
-										display.setCursorPos(1, 1)
-										print("Downloading: " .. relName)
-										local res = http.get(downloadUrl)
-										if res then
-											local f = fs.open("installer.lua", "w")
-											f.write(res.readAll())
-											f.close()
-											res.close()
-											if shell then shell.run("installer.lua") else os.run({}, "installer.lua") end
-											os.reboot()
+									local scrollOffset = 0
+									local winX, winY = 13, 4
+									local maxWidth = 35
+									local maxLines = 12
+									ui.openWindow({
+										title = "GATEOS - " .. currentOSClean .. " > " .. relClean,
+										customRender = function()
+											display.setBackgroundColor(colors.lightGray)
+											for y = winY, winY + maxLines + 1 do
+												display.setCursorPos(winX - 1, y)
+												display.write((" "):rep(maxWidth + 3)) 
+											end
+											display.setTextColor(colors.black)
+											display.setBackgroundColor(colors.lightGray)
+											local lines = ui.wrapText(relDescription, maxWidth)
+											local totalLines = #lines
+											local scrollableArea = math.max(0, totalLines - maxLines)
+											
+											for idx = 1, maxLines do
+												local lineIdx = idx + scrollOffset
+												if lines[lineIdx] then
+													display.setCursorPos(winX, winY + (idx - 1))
+													display.write(lines[lineIdx])
+												end
+											end
+											if scrollableArea > 0 then
+												local barX = winX + maxWidth + 1
+												local barY = winY + 1
+												local barHeight = maxLines
+												display.setBackgroundColor(colors.gray)
+												for i = 0, barHeight - 1 do
+													display.setCursorPos(barX, barY + i)
+													display.write(" ")
+												end
+												display.setBackgroundColor(colors.cyan)
+												display.setTextColor(colors.white)
+												display.setCursorPos(barX, barY - 1)
+												display.write("^")
+												ui.registerArea(barX, barY - 1, 1, 1, function()
+													scrollOffset = math.max(0, scrollOffset - 2)
+												end)
+												display.setCursorPos(barX, barY + barHeight)
+												display.write("v")
+												ui.registerArea(barX, barY + barHeight, 1, 1, function()
+													local limit = scrollableArea or 0
+													scrollOffset = math.min(limit, scrollOffset + 2)
+												end)
+												local thumbHeight = math.max(1, math.floor((maxLines / totalLines) * barHeight))
+												local thumbTravelArea = barHeight - thumbHeight
+												local thumbYOffset = math.floor((scrollOffset / scrollableArea) * thumbTravelArea)
+												display.setBackgroundColor(colors.white)
+												for i = 0, thumbHeight - 1 do
+													display.setCursorPos(barX, barY + thumbYOffset + i)
+													display.write(" ")
+												end
+											end
+											if downloadUrl then
+												local btnY = winY + maxLines + 1
+												local btnText = " [ INSTALL NOW ] "
+												display.setCursorPos(winX + math.floor((maxWidth - #btnText)/2), btnY)
+												display.setBackgroundColor(colors.green)
+												display.setTextColor(colors.white)
+												display.write(btnText)
+
+												ui.registerArea(winX, btnY, maxWidth, 1, function()
+													ui.clear()
+													display.setCursorPos(1, 1)
+													print("Downloading: " .. relName)
+													local res = http.get(downloadUrl)
+													if res then
+														local f = fs.open("installer.lua", "w")
+														f.write(res.readAll())
+														f.close()
+														res.close()
+														if shell then
+															shell.run("installer.lua")
+														else
+															os.run({}, "installer.lua")
+														end
+														os.reboot()
+													end
+												end)
+											end
 										end
-									end
+									})
 								end
 							})
 						end
 					end
 				end
-				isFetching = false
 			end
 			local function renderReleaseList()
 				local rStartY = 5
