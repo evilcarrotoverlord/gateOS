@@ -19,13 +19,22 @@ function GUI.new(display)
         table.insert(clickZones, {x=x, y=y, w=w, h=h, onClick=onClick})
     end
 	function self.nameToId(gateType, name, glyphData)
-			local category = glyphData[gateType:lower()] or glyphData[gateType]
-			if not category then return nil end
+		local category = glyphData[gateType:lower()] or glyphData[gateType]
+		if category then
 			for id, data in pairs(category) do
-				if data[1]:lower() == name:lower() then return id end
+				if data[1]:lower() == name:lower() then 
+					return tonumber(id) or id 
+				end
 			end
-			return nil
 		end
+		if type(name) == "string" then
+			local numericExtract = name:match("%d+")
+			if numericExtract then
+				return tonumber(numericExtract)
+			end
+		end
+		return nil
+	end
     function self.handleEvent(event, p1, p2, p3)
         if event == "mouse_click" or event == "monitor_touch" then
             local x, y = p2, p3
@@ -43,25 +52,27 @@ function GUI.new(display)
 		local typing = true
 		local finalAddress = {}
 		local forceMenuReturn = false
-		startX = startX or 1
-		startY = startY or 1
+		startX, startY = startX or 1, startY or 1
 		local width, height = 38, 14
-		local spacingX, spacingY = 9, 18
-		local gridOffX, gridOffY = 1, 3
 		local baseGlyphColor = colors.orange
-		local lowerGateType = gateType:lower()
+		local lowerGateType = tostring(gateType or "milkyway"):lower()
 		if lowerGateType == "pegasus" then
 			baseGlyphColor = colors.cyan
 		elseif lowerGateType == "universe" then
 			baseGlyphColor = colors.white
 		end
 		while typing do
+			self.reset()
+			display.setBackgroundColor(colors.black)
 			for i = 0, height - 1 do
 				display.setCursorPos(startX, startY + i)
-				display.setBackgroundColor(i >= 12 and colors.lightGray or colors.black)
+				if i >= 12 then 
+					display.setBackgroundColor(colors.lightGray) 
+				else 
+					display.setBackgroundColor(colors.black) 
+				end
 				display.write(string.rep(" ", width))
 			end
-			self.reset()
 			display.setCursorPos(48, 3)
 			display.setBackgroundColor(colors.red)
 			display.setTextColor(colors.white)
@@ -90,23 +101,15 @@ function GUI.new(display)
 					local bgY = startY + (row * 16)
 					local drawX = bgX + 4
 					local drawY = bgY + 2
-					
 					local activeColor = (i >= 7) and colors.purple or baseGlyphColor
 					GateRenderer.drawGlyphHD(gateType, numID, drawX, drawY, activeColor, colors.black)
 				end
 			end
 			if not typing then break end
-			GateRenderer.render()
 			local formattedAddress = "|"
 			for i = 1, 8 do
-				local val = "__"
-				if currentIDs[i] then
-					val = string.format("%02d", currentIDs[i])
-				end
-				formattedAddress = formattedAddress .. val
-				if i < 8 then
-					formattedAddress = formattedAddress .. "-"
-				end
+				local val = currentIDs[i] and string.format("%02d", currentIDs[i]) or "__"
+				formattedAddress = formattedAddress .. val .. (i < 8 and "-" or "")
 			end
 			formattedAddress = formattedAddress .. "|"
 			display.setCursorPos(startX, startY + 12)
@@ -124,17 +127,12 @@ function GUI.new(display)
 				finalAddress = nil
 			end)
 			local count = #currentIDs
-			local statusText = ""
-			if count > 0 then
-				if count < 6 then statusText = "INCOMPLETE"
-				elseif count < 8 then statusText = "PARTIAL"
-				else statusText = "FULL" end
-			end
+			local statusText = count < 6 and "INCOMPLETE" or (count < 8 and "PARTIAL" or "FULL")
 			display.setBackgroundColor(colors.lightGray)
 			display.setTextColor(colors.gray)
 			display.setCursorPos(startX + 9, startY + 13)
 			display.write(statusText)
-			local canSave = #currentIDs >= 6
+			local canSave = count >= 6
 			local saveLabel = " [SAVE & DIAL] "
 			display.setCursorPos(startX + width - #saveLabel, startY + 13)
 			display.setBackgroundColor(canSave and colors.green or colors.gray)
@@ -147,6 +145,8 @@ function GUI.new(display)
 					forceMenuReturn = true
 				end
 			end)
+			GateRenderer.render()
+			if display.render then display.render() end
 			local ev, p1, p2, p3 = os.pullEvent()
 			if not self.handleEvent(ev, p1, p2 or 0, p3 or 0) then
 				if ev == "key" and (p1 == keys.backspace or p1 == keys.q) then
@@ -160,27 +160,22 @@ function GUI.new(display)
 	function self.inputKeyboard(title, prompt, startX, startY, limit)
 		local input = ""
 		local typing = true
+		local shifted = false
 		local btnW, btnH = 3, 2 
 		startX, startY = startX or 1, startY or 1
 		limit = limit or 13
-		display.setBackgroundColor(colors.black)
-		for i = 0, 13 do
-			display.setCursorPos(startX, startY + i)
-			display.write(string.rep(" ", 38))
-		end
 		local rows = {
 			{"1","2","3","4","5","6","7","8","9","0","UN"},
 			{"q","w","e","r","t","y","u","i","o","p"},
 			{"a","s","d","f","g","h","j","k","l"},
-			{"z","x","c","v","b","n","m","-"}
-		}		
+			{"SH","z","x","c","v","b","n","m","-"}
+		}
 		while typing do
 			self.reset()
 			display.setBackgroundColor(colors.black)
-			display.setTextColor(colors.yellow)
-			for i = 0, 9 do
+			for i = 0, 13 do
 				display.setCursorPos(startX, startY + i)
-				display.write(string.rep(" ", 35))
+				display.write(string.rep(" ", 38))
 			end
 			display.setCursorPos(48, 3)
 			display.setBackgroundColor(colors.red)
@@ -191,6 +186,7 @@ function GUI.new(display)
 				typing = false 
 			end)
 			display.setBackgroundColor(colors.black)
+			display.setTextColor(colors.yellow)
 			display.setCursorPos(startX, startY)
 			display.write(title)
 			display.setCursorPos(startX, startY + 1)
@@ -199,18 +195,23 @@ function GUI.new(display)
 			display.setTextColor(colors.white)
 			display.write("> " .. input .. "_" .. string.rep(" ", limit - #input))
 			for rIdx, row in ipairs(rows) do
-				local rowOffset = (rIdx - 1) * 1 
+				local rowOffset = (rIdx - 1) * 1
+				if rIdx == 4 then rowOffset = rowOffset - 3 end
 				for cIdx, char in ipairs(row) do
 					local bX = startX + rowOffset + (cIdx - 1) * btnW
 					local bY = (startY + 4) + (rIdx - 1) * btnH
 					local isEven = (rIdx + cIdx) % 2 == 0
 					local bg = isEven and colors.gray or colors.lightGray
-					local label = char
+					local label = (shifted and #char == 1) and char:upper() or char
 					local currentBtnW = btnW
 					if char == "UN" then 
 						bg = colors.red 
 						label = "<UNDO"
-						currentBtnW = 5
+						currentBtnW = 6
+					elseif char == "SH" then
+						bg = shifted and colors.blue or colors.lightGray
+						label = "^"
+						currentBtnW = 4
 					end
 					display.setBackgroundColor(bg)
 					display.setTextColor(colors.white)
@@ -218,46 +219,60 @@ function GUI.new(display)
 						display.setCursorPos(bX, bY + ty)
 						display.write(string.rep(" ", currentBtnW))
 					end
-					display.setCursorPos(bX, bY + math.floor(btnH/2))
+					display.setCursorPos(bX + 1, bY + math.floor(btnH/2))
 					display.write(label)
 					self.registerArea(bX, bY, currentBtnW, btnH, function() 
 						if char == "UN" then
 							input = input:sub(1, -2)
+						elseif char == "SH" then
+							shifted = not shifted
 						elseif #input < limit then 
-							input = input .. char 
+							local toAdd = shifted and char:upper() or char
+							input = input .. toAdd
+							shifted = false
 						end 
 					end)
 				end
 			end
 			local controlY = (startY + 4) + (#rows * btnH)
-			local ctrlH = 2
 			local controls = {                
-				{label="[BACK]",     val="quit",  x=startX,      w=7,  c=colors.red},
-				{label="[  SPACE  ]", val=" ",    x=startX + 8,  w=18, c=colors.blue},
-				{label="[ACCEPT]",   val="done",  x=startX + 27, w=10, c=colors.green}
-			}			
+				{label="[BACK]",   val="quit",  x=startX,      w=7,  c=colors.red},
+				{label="[  SPACE   ]", val=" ",    x=startX + 8,  w=11, c=colors.blue},
+				{label="[ACCEPT]",   val="done",  x=startX + 20, w=10, c=colors.green}
+			}
 			for _, ctrl in ipairs(controls) do
 				display.setBackgroundColor(ctrl.c)
 				display.setTextColor(colors.white)
-				for ty = 0, ctrlH - 1 do
-					display.setCursorPos(ctrl.x, controlY + ty)
-					display.write(string.rep(" ", ctrl.w))
-				end
-				display.setCursorPos(ctrl.x + (math.floor((ctrl.w - #ctrl.label)/2)), controlY + math.floor(ctrlH/2))
-				display.write(ctrl.label)				
-				self.registerArea(ctrl.x, controlY, ctrl.w, ctrlH, function()
-					if ctrl.val == "done" then typing = false
-					elseif ctrl.val == "quit" then input = nil typing = false
-					elseif #input < limit then input = input .. ctrl.val end
+				display.setCursorPos(ctrl.x, controlY)
+				display.write(string.rep(" ", ctrl.w))
+				display.setCursorPos(ctrl.x + (math.floor((ctrl.w - #ctrl.label)/2)), controlY)
+				display.write(ctrl.label)                
+				self.registerArea(ctrl.x, controlY, ctrl.w, 1, function()
+					if ctrl.val == "done" then 
+						typing = false
+					elseif ctrl.val == "quit" then 
+						input = nil 
+						typing = false
+					elseif #input < limit then 
+						input = input .. ctrl.val 
+						shifted = false
+					end
 				end)
 			end
+			if display.render then display.render() end
 			local event, p1, p2, p3 = os.pullEvent()
 			if not self.handleEvent(event, p1, p2 or 0, p3 or 0) then
 				if event == "char" and #input < limit then 
-					input = input .. p1
+					input = input .. (shifted and p1:upper() or p1)
+					shifted = false
 				elseif event == "key" then
-					if p1 == keys.backspace then input = input:sub(1, -2)
-					elseif p1 == keys.enter then typing = false end
+					if p1 == keys.backspace then 
+						input = input:sub(1, -2)
+					elseif p1 == keys.enter then 
+						typing = false 
+					elseif p1 == keys.leftShift or p1 == keys.rightShift then
+						shifted = not shifted
+					end
 				end
 			end
 		end		
@@ -275,64 +290,52 @@ function GUI.new(display)
 				if initialValue[i] then segments[i] = tostring(initialValue[i]) end
 			end
 		end
-
 		local focus, typing, forceQuit = 1, true, false
 		local btnW, btnH = 4, 2
-
 		local function isDuplicate(val)
 			for i, v in ipairs(segments) do
 				if i ~= focus and tonumber(v) == val then return true end
 			end
 			return false
 		end
-
 		local function processDialerInput(digit)
 			local current = segments[focus]
 			local combined = current .. digit
 			local val = tonumber(combined)
-
 			if not val or val > 39 or isDuplicate(val) then 
 				return 
 			end
-
 			segments[focus] = combined
-			
 			local isFinished = (#combined == 2 or val > 3)
 			if isFinished and focus < 8 then 
 				focus = focus + 1 
 			end
 		end
-
-		while typing and death ~= true and not forceQuit do
+		while typing and not forceQuit do
 			self.reset()
 			display.setBackgroundColor(colors.gray)
 			for y = winY, winY + winH do
 				display.setCursorPos(winX, y)
 				display.write(string.rep(" ", winW))
 			end
-
 			display.setBackgroundColor(colors.black)
 			for y = winY + 1, winY + winH - 1 do
 				display.setCursorPos(winX + 1, y)
 				display.write(string.rep(" ", winW - 2))
 			end
-
 			display.setTextColor(colors.cyan)
 			display.setBackgroundColor(colors.gray)
 			display.setCursorPos(winX + 1, winY)
 			display.write(" " .. title:upper() .. " ")
-			
 			display.setCursorPos(48, 3)
 			display.setBackgroundColor(colors.red)
 			display.setTextColor(colors.white)
 			display.write(" X ")
 			self.registerArea(48, 3, 3, 1, function() forceQuit = true end)
-
 			display.setBackgroundColor(colors.black)
 			display.setTextColor(colors.yellow)
 			display.setCursorPos(startX, startY - 2)
 			display.write(prompt .. ":")
-
 			if isDialerMode then
 				for i = 1, 8 do
 					local segX = startX + ((i - 1) * 4)
@@ -350,7 +353,6 @@ function GUI.new(display)
 				display.setCursorPos(startX, startY)
 				display.write(" " .. genericInput .. string.rep("_", 15 - #genericInput) .. " ")
 			end
-
 			local padStartY = startY + 2
 			local buttons = {
 				{"1", "1", 0, 0}, {"2", "2", 1, 0}, {"3", "3", 2, 0}, {"CLR", "clear", 3, 0},
@@ -358,26 +360,21 @@ function GUI.new(display)
 				{"7", "7", 0, 2}, {"8", "8", 1, 2}, {"9", "9", 2, 2}, {"NXT", "next", 3, 2},
 				{"0", "0", 0, 3}, {"ACCEPT", "done", 1, 3}, {"BACK", "quit", 3, 3}
 			}
-
 			for _, btn in ipairs(buttons) do
 				local label, val, gridX, gridY = btn[1], btn[2], btn[3], btn[4]
 				local bX = startX + (gridX * (btnW + 1))
 				local bY = padStartY + (gridY * btnH)
 				local currentW = (val == "done") and (btnW * 2) + 1 or btnW
-				
 				local bg = ((gridX + gridY) % 2 == 0) and colors.gray or colors.lightGray
-				if val == "done" then bg = colors.green end
-				if val == "clear" or val == "back" or val == "quit" then bg = colors.red end
-				
+				if val == "clear" then bg = colors.yellow elseif val == "back" or val == "quit" then bg = colors.red elseif val == "done" then bg = colors.green end
 				display.setBackgroundColor(bg)
-				display.setTextColor(colors.white)
+				display.setTextColor(colors.black)
 				for ty = 0, btnH - 1 do 
 					display.setCursorPos(bX, bY + ty) 
 					display.write(string.rep(" ", currentW)) 
 				end
 				display.setCursorPos(bX + math.floor((currentW - #label)/2), bY + math.floor(btnH/2)) 
 				display.write(label)
-
 				self.registerArea(bX, bY, currentW, btnH, function()
 					if val == "done" then 
 						typing = false
@@ -405,7 +402,7 @@ function GUI.new(display)
 					end
 				end)
 			end
-
+			if display.render then display.render() end
 			local event, p1, p2, p3 = os.pullEvent()
 			if not self.handleEvent(event, p1, p2 or 0, p3 or 0) then
 				if event == "char" and p1:match("%d") then 
@@ -424,7 +421,6 @@ function GUI.new(display)
 				end
 			end
 		end
-
 		if forceQuit then return initialValue end		
 		if isDialerMode then
 			local result = {}
@@ -437,42 +433,42 @@ function GUI.new(display)
 		end
 	end
 	function self.openWindow(menuTree)
-        local backgroundClickZones = clickZones
-        clickZones = {}
-        local menuStack = { menuTree }
-        local windowOpen = true
+		local backgroundClickZones = clickZones
+		local menuStack = { menuTree }
+		local windowOpen = true
+
 		function self.closeWindow()
 			windowOpen = false
 		end
-        while windowOpen do
-            display.setBackgroundColor(colors.gray)
-            for y = 3, 18 do
-                display.setCursorPos(11, y)
-                display.write(string.rep(" ", 40))
-            end
-            display.setBackgroundColor(colors.black)
-            for y = 4, 17 do
-                display.setCursorPos(12, y)
-                display.write(string.rep(" ", 38))
-            end
-            local currentMenu = menuStack[#menuStack]
-            display.setCursorPos(12, 3)
-            display.setTextColor(colors.cyan)
-            display.setBackgroundColor(colors.gray)
-            local titleText = currentMenu.title
-			if type(titleText) == "function" then
-				titleText = titleText()
+		while windowOpen do
+			local currentMenu = menuStack[#menuStack]
+			if not currentMenu then
+				windowOpen = false
+				break
 			end
-			titleText = titleText or "MENU"
-            if #menuStack > 1 then titleText = "< " .. titleText end
-            display.write(" " .. titleText:upper() .. " ")
-            display.setCursorPos(48, 3)
-            display.setBackgroundColor(colors.red)
-            display.setTextColor(colors.white)
-            display.write(" X ")
-            clickZones = {} 
-            self.registerArea(48, 3, 3, 1, function()
-            if #menuStack > 1 then table.remove(menuStack) else windowOpen = false end
+			clickZones = {}
+			display.setBackgroundColor(colors.gray)
+			for y = 3, 18 do
+				display.setCursorPos(11, y)
+				display.write(string.rep(" ", 40))
+			end
+			display.setBackgroundColor(colors.black)
+			for y = 4, 17 do
+				display.setCursorPos(12, y)
+				display.write(string.rep(" ", 38))
+			end
+			local titleText = type(currentMenu.title) == "function" and currentMenu.title() or currentMenu.title or "MENU"
+			if #menuStack > 1 then titleText = "< " .. titleText end
+			display.setCursorPos(12, 3)
+			display.setTextColor(colors.cyan)
+			display.setBackgroundColor(colors.gray)
+			display.write(" " .. titleText:upper() .. " ")
+			display.setCursorPos(48, 3)
+			display.setBackgroundColor(colors.red)
+			display.setTextColor(colors.white)
+			display.write(" X ")
+			self.registerArea(48, 3, 3, 1, function()
+				if #menuStack > 1 then table.remove(menuStack) else windowOpen = false end
 			end)
 			if currentMenu.customRender then
 				currentMenu.customRender()
@@ -480,12 +476,11 @@ function GUI.new(display)
 				local startY = 4
 				for i, item in ipairs(currentMenu.items or {}) do
 					if startY > 17 then break end
-					display.setCursorPos(13, startY)
-					display.setBackgroundColor(colors.black)
-					display.setTextColor(colors.white)					
 					local labelText = type(item.label) == "function" and item.label() or item.label
 					display.setCursorPos(13, startY)
-					display.write("" .. tostring(labelText))
+					display.setBackgroundColor(colors.black)
+					display.setTextColor(colors.white)
+					display.write(tostring(labelText))
 					
 					self.registerArea(13, startY, 30, 1, function()
 						if item.submenu then 
@@ -497,13 +492,12 @@ function GUI.new(display)
 					startY = startY + 1
 				end
 			end
-            local event, p1, p2, p3 = os.pullEvent()
-            local handled = self.handleEvent(event, p1, p2 or 0, p3 or 0)
-            if (event == "mouse_click" or event == "monitor_touch") and not handled then
-            end
-        end
-        clickZones = backgroundClickZones
-    end   
+			if display.render then display.render() end
+			local event, p1, p2, p3 = os.pullEvent()
+			self.handleEvent(event, p1, p2 or 0, p3 or 0)
+		end
+		clickZones = backgroundClickZones
+	end
     return self
 end
 return GUI
