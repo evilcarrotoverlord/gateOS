@@ -1,5 +1,5 @@
-local outputFile = "installer.lua"
-local targets = { "lib", "startup.lua", "gateOS.lua" }
+local outputFile =	"installer.lua"
+local targets =		{ "lib", "startup.lua", "gateOS.lua" }
 local function parseVersion(content)
 	if not content then return nil end
 	return content:match('_G%.OS_VERSION%s*=%s*"%s*([^"]-)%s*"')
@@ -30,11 +30,13 @@ local function getFiles(dir)
 	end
 	return files
 end
+
 local allFiles = {}
 for _, target in ipairs(targets) do
 	local found = getFiles(target)
 	for _, path in ipairs(found) do table.insert(allFiles, path) end
 end
+
 local out = fs.open(outputFile, "w")
 out.writeLine("local files = {}")
 out.writeLine(string.format("local VERSION = %q", currentVersion))
@@ -57,7 +59,6 @@ end
 local multiTerm = {}
 local targets = {term}
 if monitor then table.insert(targets, monitor) end
-
 local functions = {"write", "scroll", "setCursorPos", "setCursorBlink", "setBackgroundColor", "setTextColor", "clear", "clearLine", "setTextScale"}
 for _, name in ipairs(functions) do
 	multiTerm[name] = function(...)
@@ -214,4 +215,13 @@ os.pullEvent()
 os.reboot()
 ]])
 out.close()
-print("Created " .. outputFile .. " for gateOS (Version: " .. currentVersion .. ")")
+local tellrawCommand = string.format(
+	'tellraw @a {"text":"","extra":[{"text":"[Packer] ","color":"gray"},{"text":"Created ","color":"white"},{"text":"%s","color":"green","underlined":true},{"text":" for ","color":"white"},{"text":"GateOS ","color":"blue","bold":true},{"text":"(v%s)","color":"yellow"}]}',
+	outputFile,
+	currentVersion
+)
+if commands then
+	commands.exec(tellrawCommand)
+else
+	print("Created " .. outputFile .. " for gateOS (Version: " .. currentVersion .. ")")
+end
