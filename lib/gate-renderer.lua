@@ -133,6 +133,9 @@ function GateRenderer.drawCircle(centerX, centerY, radius, col)
     end
 end
 function GateRenderer.render()
+	if target and target.render then
+		target.render()
+	end
 	for y = 1, h do
 		for x = 1, w do
 			local cell = Buffer[y][x]
