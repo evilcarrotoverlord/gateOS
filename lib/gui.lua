@@ -15,6 +15,22 @@ function GUI.new(display)
         display.setCursorPos(1,1)
         self.reset()
     end
+	function self.wrapText(text, maxWidth)
+		local lines = {}
+		for line in text:gmatch("([^\n]*)\n?") do
+			local currentLine = ""
+			for word in line:gmatch("%S+") do
+				if #currentLine + #word + 1 > maxWidth then
+					table.insert(lines, currentLine)
+					currentLine = word
+				else
+					currentLine = currentLine == "" and word or currentLine .. " " .. word
+				end
+			end
+			if #currentLine > 0 then table.insert(lines, currentLine) end
+		end
+		return lines
+	end
     function self.registerArea(x, y, w, h, onClick)
         table.insert(clickZones, {x=x, y=y, w=w, h=h, onClick=onClick})
     end
