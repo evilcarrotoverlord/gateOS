@@ -1,8 +1,8 @@
-_G.OS_VERSION = "1.02"
+_G.OS_VERSION = "1.1"
 local GUI = require("lib/gui")
 local GateRenderer = require("lib/gate-renderer")
 local glyph_data = require("lib/glyph")
-local config = { gateName = "Gate", idc = "", irisMode = 1, debug = false, theme = {
+local config = { gateName = "Gate", idc = "", irisMode = 1, debug = false, monitorID = 999, theme = {
         theme1 = colors.gray, theme2 = colors.lightGray, themep = colors.red, themecsb = colors.lightGray,
         thement = colors.cyan, themept = colors.gray, themepwt = colors.white, themecst = colors.lightGray,
         thememt = colors.black, themelb = colors.lightGray, themelt = colors.white, themecdt = colors.blue,
@@ -21,6 +21,10 @@ return function(stargate, Gates, display, shell)
 	local isBusy = false
 	local lastRedstoneState = false
     local ui = GUI.new(display)
+	local OPTIONS_FILE = "options-gOS.conf"
+	local GATES_FILE = "gates.conf"
+	local OLD_OPTIONS = "options.lua"
+	local OLD_GATES = "gates.lua"
     local self = {}
 	local quitConfirmed = false
 	local quitTimer = nil
@@ -37,29 +41,65 @@ return function(stargate, Gates, display, shell)
     local colors_map = {MilkyWay = colors.orange, Pegasus = colors.cyan, Universe = colors.white, Tollan = colors.cyan, Movie = colors.orange}
     local activeColor = colors_map[localType] or colors.orange
     Logger.log("States Initialized", "SYS")
-	local function loadOptions()
-        if not fs.exists("options.lua") then
-            return
-        end
-        local f = fs.open("options.lua", "r")
-        if f then
-            local rawData = f.readAll()
-            f.close()
-            local data = textutils.unserialize(rawData)            
-            if type(data) == "table" then 
+	local function migrateAndLoad()
+		if not fs.exists(OPTIONS_FILE) and fs.exists(OLD_OPTIONS) then
+			fs.move(OLD_OPTIONS, OPTIONS_FILE)
+			Logger.log("Migrated options to .conf", "SYS")
+		end
+		if fs.exists(OPTIONS_FILE) then
+			local f = fs.open(OPTIONS_FILE, "r")
+			local rawData = f.readAll()
+			f.close()
+			local processedData = rawData:gsub("^return%s+", "")
+			local data = textutils.unserialize(processedData)
+			if type(data) == "table" then
 				config.gateName = data.gateName or "Gate"
-                config.debug = data.debug or false 
-                _G.DEBUG_MODE = config.debug	
-                config.idc = tostring(data.idc or "0000")
-                config.irisMode = tonumber(data.irisMode) or 1
-                if data.theme then
-                    for k, v in pairs(data.theme) do config.theme[k] = v end
-                end
-                stargate.idc = config.idc
-                stargate.irisMode = config.irisMode
-            end
-        end
-    end
+				config.debug = data.debug or false 
+				_G.DEBUG_MODE = config.debug	
+				config.idc = tostring(data.idc or "0000")
+				config.irisMode = tonumber(data.irisMode) or 1
+				config.monitorID = tonumber(data.monitorID) or 999
+				if data.theme then
+					for k, v in pairs(data.theme) do config.theme[k] = v end
+				end
+				stargate.idc = config.idc
+				stargate.irisMode = config.irisMode
+			end
+		end
+		if not fs.exists(GATES_FILE) and fs.exists(OLD_GATES) then
+			fs.move(OLD_GATES, GATES_FILE)
+			Logger.log("Migrated gates to .conf", "SYS")
+		end
+		if fs.exists(GATES_FILE) then
+			local f = fs.open(GATES_FILE, "r")
+			local rawData = f.readAll()
+			f.close()
+			local processedData = rawData:gsub("^return%s+", "")
+			local loadedGates = textutils.unserialize(processedData)
+			if type(loadedGates) == "table" then
+				for k, v in pairs(loadedGates) do
+					Gates[k] = v
+				end
+			end
+		end
+	end
+	migrateAndLoad()
+	local function initGates()
+		if not fs.exists(GATES_FILE) and fs.exists(OLD_GATES) then
+			fs.move(OLD_GATES, GATES_FILE)
+			Logger.log("Migrated gates to .conf", "SYS")
+		end
+		if fs.exists(GATES_FILE) then
+			local f = fs.open(GATES_FILE, "r")
+			local rawData = f.readAll()
+			f.close()
+			local processedData = rawData:gsub("^return%s+", "")
+			local loadedGates = textutils.unserialize(processedData)
+			if loadedGates then
+				for k, v in pairs(loadedGates) do Gates[k] = v end
+			end
+		end
+	end
 	local function getGateTypeLabel()
 		local gType = stargate.getGateType()
 		if gType == "Pegasus" then
@@ -92,43 +132,52 @@ return function(stargate, Gates, display, shell)
 	local sortedKeys = {}
     for name in pairs(Gates) do table.insert(sortedKeys, name) end
     local totalGates = #sortedKeys
-	for i, name in ipairs(sortedKeys) do
-        display.setBackgroundColor(colors.black)
-        display.clear()
-        local barW = 20
-        local progressRatio = i / totalGates
-        local progressPercent = math.floor(progressRatio * barW)
-        local glyphCount = math.floor(progressRatio * 9)
-        local loadingSequence = ""
-        for n = 1, glyphCount do
-            loadingSequence = loadingSequence .. n
-        end
-        if GateRenderer and GateRenderer.draw then
-            GateRenderer.draw(loadingSequence, localType, 31, 12, false, "OPENED", "none", stargate.glyphID())
-        end		
+		for i, name in ipairs(sortedKeys) do
+		display.setBackgroundColor(colors.black)
+		local barW = 20
+		local progressRatio = i / totalGates
+		local progressPercent = math.floor(progressRatio * barW)
+		local glyphCount = math.floor(progressRatio * 9)
+		local loadingSequence = ""
+		for n = 1, glyphCount do
+			loadingSequence = loadingSequence .. n
+		end
+		if GateRenderer and GateRenderer.draw then
+			GateRenderer.draw(loadingSequence, localType, 31, 12, false, "OPENED", "none", stargate.glyphID())
+		end
 		display.setBackgroundColor(colors.gray)
 		for y,x,l in ("032A07042909052902053002062902063101072905082A07090404090A02090F01091302092D050A04010A0C010A0E030A12010A15010A29010A30020B04010B06020B0A030B0F010B12040B29020B30020C04010C07010C09010C0C010C0F010C12010C29090D04040D0A030D10010D13030D2A07"):gmatch"(..)(..)(..)" do
-			display.setCursorPos(tonumber(x,16),tonumber(y,16))
+			display.setCursorPos(tonumber(x,16), tonumber(y,16))
 			display.write((" "):rep(tonumber(l,16)))
 		end
-        display.setCursorPos(16, 15) 
-        display.write(string.rep(" ", barW))
-        display.setCursorPos(16, 15)
-        display.setBackgroundColor(colors.green)
-        display.write(string.rep(" ", progressPercent))
-        display.setBackgroundColor(colors.black)
-        display.setTextColor(colors.white)
-        local statusText = "Initializing: " .. name
-        display.setCursorPos(26 - (#statusText/2), 17)
-        display.write(statusText)
-		local verText = "v" .. _G.OS_VERSION
+		display.setBackgroundColor(colors.black)
+		display.setTextColor(colors.gray)
+		display.setCursorPos(36, 17)
+		display.write("\149")
+		display.setBackgroundColor(colors.gray)
+		display.setTextColor(colors.black)
+		display.setCursorPos(15, 17)
+		display.write("\149")
+		display.setCursorPos(16, 17)
+		display.write(string.rep("\140", barW))
+		display.setCursorPos(16, 17)
+		display.setTextColor(colors.green)
+		display.write(string.rep("\140", progressPercent))
+		display.setBackgroundColor(colors.black)
+		display.setTextColor(colors.white)
+		local statusText = "Initializing: " .. name
+		display.setCursorPos(math.floor(26 - (#statusText/2)), 16)
+		display.write(statusText)
+		local verText = "v" .. (_G.OS_VERSION or "1.0")
 		display.setTextColor(colors.gray)
 		display.setCursorPos(w - #verText, h)
 		display.write(verText)
-        self.updateEnergyCache(name)
-        sleep(0.05)
-		Logger.log("Main Menu Initialized", "SYS")
-    end
+		if display.render then
+			display.render()
+		end
+		self.updateEnergyCache(name)
+		sleep(0.05)
+	end
     sortedInit = {}
     for name, data in pairs(Gates) do
         table.insert(sortedInit, { name = name, order = data.order or 999 })
@@ -147,23 +196,24 @@ return function(stargate, Gates, display, shell)
 		selectedAddress = sortedInit[1].name
 	end
     local function saveOptions()
-        Logger.log("Saving options", "SYS")
-        local f = fs.open("options.lua", "w")
-        if f then
-            f.write(textutils.serialize(config))
-            f.close()
-        end
-    end
-	loadOptions()
-    local function saveAddressBook()
-        local f = fs.open("gates.lua", "w")
-        if f then
-            f.write("return " .. textutils.serialize(Gates))
-            f.close()
-        else
-            Logger.log("Export Error", "")
-        end
-    end
+		Logger.log("Saving options", "SYS")
+		local f = fs.open(OPTIONS_FILE, "w")
+		if f then
+			f.write(textutils.serialize(config))
+			f.close()
+			if fs.exists(OLD_OPTIONS) then fs.delete(OLD_OPTIONS) end
+		end
+	end
+	local function saveAddressBook()
+		local f = fs.open(GATES_FILE, "w")
+		if f then
+			f.write("return " .. textutils.serialize(Gates))
+			f.close()
+			if fs.exists(OLD_GATES) then fs.delete(OLD_GATES) end
+		else
+			Logger.log("Export Error", "")
+		end
+	end
 	local function getSyncStatus(localName, diskData)
 		local localEntry = Gates[localName]
 		if not localEntry then return "[ ]" end
@@ -295,18 +345,109 @@ return function(stargate, Gates, display, shell)
 				display.setTextColor(colors.white)
 				display.setBackgroundColor(colors.black)
 				display.write("Is this gate in another dimension?")
-				
 				display.setCursorPos(15, 10)
 				display.setBackgroundColor(colors.red)
 				display.write("  YES  ")
 				ui.registerArea(15, 10, 7, 1, function() finalizeImport(true) end)
-				
 				display.setCursorPos(28, 10)
 				display.setBackgroundColor(colors.green)
 				display.write("  NO   ")
 				ui.registerArea(28, 10, 7, 1, function() finalizeImport(false) end)
 			end
-		}, { frame = colors.gray, title = colors.blue, text = colors.white })
+		})
+	end
+	local function getAvailableDrive()
+		for _, side in ipairs(peripheral.getNames()) do
+			if peripheral.getType(side) == "drive" then return side end
+		end
+		return nil
+	end
+	local function WirelessClient(side)
+		local mount = disk.getMountPath(side)
+		if not mount then return end
+		local hostID = os.getComputerID()
+		local gateName = config.gateName or "Gate"
+		local randomSuffix = math.random(10000000, 99999999)
+		local useID = tonumber((hostID + 1) .. randomSuffix)
+		_G.clientPCID = useID
+		local clientRaw = [[
+			local hID, uID, name = ]] .. hostID .. [[, ]] .. useID .. [[, "]] .. gateName .. [["
+			local sX, maxW, frame, dragging = 0, 51, {}, false
+			local mod = peripheral.find("modem") or error("No Modem")
+			local mon = peripheral.find("monitor") or term
+			rednet.open(peripheral.getName(mod))
+			local function draw(st, col)
+				for _, d in ipairs({term, mon}) do
+					d.setBackgroundColor(colors.black) d.clear() d.setCursorPos(1,1)
+					d.setTextColor(colors.yellow) d.write("GateOS "..(pocket and "Mobile" or "Mirror"))
+					d.setCursorPos(1,2) d.setTextColor(colors.white) d.write("Host: "..name)
+					d.setCursorPos(1,4) d.setTextColor(col or 1) d.write("Status: "..st)
+				end
+			end
+			local function render()
+				local ok, w, h = pcall(mon.getSize)
+				if not ok then mon = term return end
+				for y, r in ipairs(frame or {}) do
+					if y <= h and y ~= 20 and type(r) == "table" then
+						mon.setCursorPos(1, y) pcall(mon.blit, r.text:sub(sX+1, sX+w), r.fg:sub(sX+1, sX+w), r.bg:sub(sX+1, sX+w))
+					end
+				end
+				if h < 20 then return end
+				local mX = maxW - w
+				mon.setCursorPos(1, 20) mon.blit((" "):rep(w), ("0"):rep(w), ("7"):rep(w))
+				if mX > 0 then
+					local tw = w - 2
+					local tSz = math.max(1, math.floor((w/maxW)*tw))
+					local tP = math.floor((sX/mX)*(tw-tSz))+2
+					mon.setCursorPos(1, 20) mon.blit("<", "f", "8") mon.setCursorPos(w, 20) mon.blit(">", "f", "8")
+					mon.setCursorPos(tP, 20) mon.blit(("\127"):rep(tSz), ("f"):rep(tSz), ("8"):rep(tSz))
+				end
+			end
+			local function updateScroll(cX)
+				local w = mon.getSize()
+				local mX = maxW - w
+				if mX > 0 then sX = math.floor((math.max(0, math.min(w-2, cX-2))/(w-2))*mX) render() end
+			end
+			local function main()
+				draw("Connecting...", colors.orange)
+				rednet.send(hID, {type="HANDSHAKE", uid=uID, name=name}, "gateos_input")
+				local auth, timer = false, os.startTimer(3)
+				while true do
+					local ev, p1, p2, p3 = os.pullEvent()
+					local w, h = mon.getSize()
+					if ev == "rednet_message" and p1 == hID and p3 == "gateos_mirror" then
+						if p2.type == "CONFIRM" then
+							auth = true draw("Connected!", colors.green) sleep(1) mon.clear()
+						elseif p2.type == "REJECT" or p2.type == "FAILURE" then
+							draw(p2.reason or "Rejected", colors.red) auth = false
+						elseif auth and p2.type == "FRAME_UPDATE" then frame = p2.data render() end
+					elseif auth and ev:find("scroll") then
+						sX = math.max(0, math.min(sX + ((ev:find("mouse") and p1 or p2) * 2), maxW - w)) render()
+					elseif auth and (ev == "monitor_touch" or ev == "mouse_click") then
+						if p3 == 20 then
+							if p2 == 1 then sX = 0 elseif p2 == w then sX = maxW - w else dragging = true updateScroll(p2) end render()
+						else rednet.send(hID, {type="remote_touch", x = p2+sX, y = p3, uid = uID}, "gateos_input") end
+					elseif ev == "mouse_drag" and dragging then updateScroll(p2)
+					elseif ev == "mouse_up" then dragging = false
+					elseif ev == "timer" and p1 == timer and not auth then
+						draw("No Response", colors.red) rednet.send(hID, {type="HANDSHAKE", uid=uID, name=name}, "gateos_input")
+						timer = os.startTimer(3)
+					elseif ev:find("peripheral") then
+						mon = peripheral.find("monitor") or term draw(auth and "Live" or "Wait", auth and colors.green or colors.orange)
+					end
+				end
+			end
+			while true do local ok, err = pcall(main) term.setTextColor(colors.red) print("Err: "..tostring(err)) sleep(3) end
+		]]
+		local f = fs.open(fs.combine(mount, "startup.lua"), "w")
+		f.write(clientRaw)
+		f.close()
+		config.monitorID = useID
+		local cf = fs.open("options-gOS.conf", "w")
+		cf.write(textutils.serialize(config))
+		cf.close()
+		disk.eject(side)
+		Logger.log("Wireless Client: " .. useID, "SYS")
 	end
 	local function openDiskBrowser()
 		local diskPage = 1
@@ -400,7 +541,6 @@ return function(stargate, Gates, display, shell)
 					local dumpName = config.gateName
 					local mountPath = disk.getMountPath(driveSide)
 					local fullPath = fs.combine(mountPath, "gates.lua")
-					
 					local function convertToIds(addressTable, gType)
 						local idTable = {}
 						if not addressTable then return idTable end
@@ -410,7 +550,6 @@ return function(stargate, Gates, display, shell)
 						end
 						return idTable
 					end
-
 					local diskData = getDiskData()
 					diskData[dumpName] = {
 						name = dumpName,
@@ -445,34 +584,35 @@ return function(stargate, Gates, display, shell)
 		ui.openWindow({
 			title = "External Storage Manager",
 			customRender = renderDiskContent
-		}, { frame = colors.gray, title = colors.blue, text = colors.white })
+			})
 	end
+	
 	local function openScannerWindow()
 		local scanPage = 1
 		local itemsPerPage = 5
 		local flatGates = {}
 		local hasScanned = false
 		local isFullScan = false
-		local lastRawResults = {}
-		local function getNormalizedCategory(gType)
-			if gType == "Pegasus" then return "Pegasus" end
-			if gType == "Universe" then return "Universe" end
+		local function getRunningGateType()
+			local gType = stargate.getGateType()
+			if gType == "Pegasus" or gType == "Universe" then
+				return gType
+			end
 			return "MilkyWay"
 		end
 		local function doScan()
 			display.setCursorPos(15, 8)
 			display.setTextColor(colors.yellow)
 			display.setBackgroundColor(colors.black)
-			display.write("Scanning Network...    ")		
+			display.write("Scanning Network...    ")
 			local results = stargate.getNearbyGates("", true, not isFullScan)
 			if type(results) ~= "table" then
 				local _, _, backup = stargate.getNearbyGates("", true, not isFullScan)
 				results = backup
-			end		
-			lastRawResults = results
+			end
 			flatGates = {}
 			if type(results) == "table" then
-				local typeCounters = { MilkyWay = 0, Pegasus = 0, Universe = 0 }
+				local typeCounters = {} 
 				local tempSort = {}
 				for gType, gates in pairs(results) do
 					for addrTable, distance in pairs(gates) do
@@ -486,13 +626,14 @@ return function(stargate, Gates, display, shell)
 					end
 				end
 				table.sort(tempSort, function(a, b) return a.distance < b.distance end)
+				local currentSystem = getRunningGateType()
 				for _, entry in ipairs(tempSort) do
-					local saveCategory = getNormalizedCategory(entry.gType)
-					typeCounters[saveCategory] = typeCounters[saveCategory] + 1
-					local incrementalName = saveCategory .. "_" .. typeCounters[saveCategory]
+					local baseName = entry.gType:lower()
+					typeCounters[baseName] = (typeCounters[baseName] or 0) + 1
+					local displayName = baseName .. " " .. typeCounters[baseName]
 					local ids = {}
 					for _, glyphName in ipairs(entry.addrTable) do
-						local id = ui.nameToId(saveCategory, glyphName, glyph_data)
+						local id = ui.nameToId(currentSystem, glyphName, glyph_data)
 						if id then 
 							table.insert(ids, tonumber(id)) 
 						else
@@ -501,22 +642,26 @@ return function(stargate, Gates, display, shell)
 						end
 					end
 					local isSaved = false
+					local matchedName = nil
 					for name, gateEntry in pairs(Gates) do
-						local savedIds = gateEntry.addresses and (gateEntry.addresses[saveCategory] or gateEntry.addresses["MilkyWay"])
+						local savedIds = gateEntry.addresses and gateEntry.addresses[currentSystem]
 						if savedIds and #savedIds == #ids then
 							local match = true
 							for i = 1, #savedIds do
 								if savedIds[i] ~= ids[i] then match = false; break end
 							end
-							if match then isSaved = true; break end
+							if match then 
+								isSaved = true
+								matchedName = name
+								break 
+							end
 						end
 					end
 					table.insert(flatGates, {
 						gateType = entry.gType,
-						saveCategory = saveCategory,
-						incrementalName = incrementalName,
+						displayName = displayName,
+						matchedName = matchedName,
 						ids = ids,
-						distance = entry.distance,
 						isSaved = isSaved
 					})
 				end
@@ -525,28 +670,31 @@ return function(stargate, Gates, display, shell)
 		end
 		local function renderScannerContent()
 			if not hasScanned then doScan() end
-			if #flatGates == 0 then
+			local totalGates = #flatGates
+			if totalGates == 0 then
 				display.setCursorPos(15, 8)
 				display.setTextColor(colors.red)
 				display.setBackgroundColor(colors.black)
 				display.write("NO GATES FOUND")
 			else
-				local totalPages = math.max(1, math.ceil(#flatGates / itemsPerPage))
 				local startIdx = ((scanPage - 1) * itemsPerPage) + 1
-				local endIdx = math.min(startIdx + itemsPerPage - 1, #flatGates)
+				local endIdx = math.min(startIdx + itemsPerPage - 1, totalGates)
 				for i = startIdx, endIdx do
 					local gate = flatGates[i]
 					local y = 5 + ((i - startIdx) * 2)
 					display.setCursorPos(13, y)
 					display.setBackgroundColor(colors.gray)
-					display.setTextColor(colors.white)
-					local rowText = string.format("%s (%s)", gate.incrementalName, gate.distance)
-					display.write(string.format(" %-24s", rowText:sub(1,24)))
 					if gate.isSaved then
+						local typeStr = gate.gateType:lower() .. ": "
+						local gateCol = colors_map[gate.gateType] or colors.white
+						display.setTextColor(gateCol)
+						display.write(" " .. typeStr)
+						local nameWidth = 28 - #typeStr
 						display.setTextColor(colors.green)
-						display.write("[*] ")
+						display.write(string.format("%-"..nameWidth.."s", gate.matchedName:sub(1, nameWidth)))
 					else
-						display.write("    ")
+						display.setTextColor(colors.white)
+						display.write(string.format(" %-28s", gate.displayName:sub(1, 28)))
 					end
 					display.setCursorPos(42, y)
 					display.setBackgroundColor(gate.isSaved and colors.lightGray or colors.blue)
@@ -554,78 +702,72 @@ return function(stargate, Gates, display, shell)
 					display.write(" SAVE ")
 					if not gate.isSaved then
 						ui.registerArea(42, y, 6, 1, function()
-							local newName = ui.inputKeyboard("Save Address", "Enter Name", 12, 4, 14, gate.incrementalName)
-							if newName and newName ~= "" then
-								local newEntry = {
-									name = newName,
-									addresses = {
-										MilkyWay = {},
-										Pegasus = {},
-										Universe = {}
-									},
-									isIntergalactic = (#gate.ids > 7),
-									gateType = gate.saveCategory,
-									irisCode = ""
-								}
-								newEntry.addresses[gate.saveCategory] = gate.ids
-								local maxOrder = 0
-								for _, g in pairs(Gates) do
-									if g.order and g.order > maxOrder then maxOrder = g.order end
-								end
-								newEntry.order = maxOrder + 1
-								Gates[newName] = newEntry
-								if type(saveAddressBook) == "function" then 
-									saveAddressBook() 
-								end
-								gate.isSaved = true
+							local currentSystem = getRunningGateType()
+							local newEntry = {
+								name = gate.displayName,
+								addresses = { MilkyWay = {}, Pegasus = {}, Universe = {} },
+								isIntergalactic = false,
+								gateType = gate.gateType,
+								irisCode = ""
+							}
+							newEntry.addresses[currentSystem] = gate.ids
+							local maxOrder = 0
+							for _, g in pairs(Gates) do
+								if (g.order or 0) > maxOrder then maxOrder = g.order end
 							end
+							newEntry.order = maxOrder + 1
+							Gates[gate.displayName] = newEntry
+							saveAddressBook()
+							gate.isSaved = true
+							gate.matchedName = gate.displayName
 						end)
 					end
 				end
+				local totalPages = math.ceil(totalGates / itemsPerPage)
+				display.setCursorPos(12, 17)
+				display.setBackgroundColor(colors.blue)
 				display.setTextColor(colors.white)
+				display.write(" SCAN ")
+				ui.registerArea(12, 17, 6, 1, function() hasScanned = false; scanPage = 1 end)
+				display.setBackgroundColor(colors.lightGray)
+				display.setCursorPos(18, 17)
 				if scanPage > 1 then
-					display.setCursorPos(13, 16)
-					display.setBackgroundColor(colors.blue)
-					display.write(" < ")
-					ui.registerArea(13, 16, 3, 1, function() scanPage = scanPage - 1 end)
+					display.setTextColor(colors.black)
+					display.write("<<<<")
+					ui.registerArea(18, 17, 4, 1, function() scanPage = scanPage - 1 end)
+				else
+					display.setTextColor(colors.lightGray)
+					display.write("<<<<")
 				end
-				if scanPage < totalPages then
-					display.setCursorPos(17, 16)
-					display.setBackgroundColor(colors.blue)
-					display.write(" > ")
-					ui.registerArea(17, 16, 3, 1, function() scanPage = scanPage + 1 end)
-				end
-			end
-			display.setCursorPos(21, 16)
-			display.setBackgroundColor(colors.red)
-			display.setTextColor(colors.white)
-			display.write(" FULL SCAN ")
-			ui.registerArea(21, 16, 11, 1, function()
-				isFullScan = true
-				hasScanned = false
-				scanPage = 1
-			end)
-			if config.debug then
-				display.setCursorPos(33, 16)
-				display.setBackgroundColor(colors.yellow)
 				display.setTextColor(colors.black)
-				display.write(" DEBUG DUMP ")
-				ui.registerArea(33, 16, 12, 1, function()
-					local f = fs.open("scan_dump.txt", "w")
-					f.write(textutils.serialize(lastRawResults))
-					f.close()
+				local pageStr = string.format("   Page %d/%d    ", scanPage, totalPages)
+				display.write(pageStr)
+				if scanPage < totalPages then
+					display.setTextColor(colors.black)
+					display.write(">>>>")
+					ui.registerArea(21 + #pageStr, 17, 4, 1, function() scanPage = scanPage + 1 end)
+				else
+					display.setTextColor(colors.lightGray)
+					display.write(">>>>")
+				end
+				local fullX = 26 + #pageStr
+				display.setCursorPos(fullX, 17)
+				display.setBackgroundColor(isFullScan and colors.green or colors.red)
+				display.setTextColor(colors.white)
+				local fullText = isFullScan and " FULL:ON " or " FULL:OFF"
+				display.write(fullText)
+				ui.registerArea(fullX, 17, #fullText, 1, function() 
+					isFullScan = not isFullScan
+					hasScanned = false 
+					scanPage = 1
 				end)
 			end
 		end
 		ui.openWindow({
 			title = "Network Scanner",
 			customRender = renderScannerContent
-		}, {
-			frame = colors.lightGray,
-			title = colors.blue,
-			text = colors.white
 		})
-	end	
+	end
 	local function drawThemeContent()
 		local items = {
 			{key = "theme1",   label = "Accent 1"},{key = "theme2",   label = "Accent 2"},{key = "themep",   label = "Power Fill"},
@@ -798,8 +940,8 @@ return function(stargate, Gates, display, shell)
 			display.setCursorPos(35, 17) display.write("  DISCARD ")
 			ui.registerArea(35, 16, 10, 2, function() ui.closeWindow() end)
 		end
-		ui.openWindow({ title = "Create New Entry", customRender = renderNewContent }, 
-		{ frame = colors.gray, title = colors.blue, text = colors.white, close = colors.red })
+		ui.openWindow({ title = "Create New Entry", customRender = renderNewContent 
+		})
 		ui.clear()
 		self.renderMenu()
 	end
@@ -992,8 +1134,8 @@ return function(stargate, Gates, display, shell)
 				end
 			end)
 		end
-		ui.openWindow({ title = "Gate Configuration", customRender = renderEditContent }, 
-		{ frame = colors.gray, title = colors.blue, text = colors.white, close = colors.red })
+		ui.openWindow({ title = "Gate Configuration", customRender = renderEditContent 
+		})
 		ui.clear(); self.renderMenu()
 	end
 	local function drawGate()
@@ -1226,8 +1368,12 @@ return function(stargate, Gates, display, shell)
             end
         end)
 		display.setCursorPos(22, 15) display.setBackgroundColor(colors.black) display.write("                   ")
-		display.setCursorPos(22, 18) display.setBackgroundColor(config.theme.theme1) display.write("                              ")
-		display.setCursorPos(22, 2) display.setBackgroundColor(colors.black) display.write("                  ")
+		display.setCursorPos(22, 18)
+		display.setTextColor(config.theme.theme1)
+		display.setBackgroundColor(config.theme.theme2)
+		display.write(("\143"):rep(30))
+		display.setCursorPos(22, 2) 
+		display.setBackgroundColor(colors.black) display.write("                  ")
 		table.sort(sortedKeys, function(a, b)
 			local orderA = Gates[a].order or 999
 			local orderB = Gates[b].order or 999
@@ -1501,8 +1647,49 @@ return function(stargate, Gates, display, shell)
 						ui.openWindow({ 
 							title = "Theme Editor", 
 							customRender = function() drawThemeContent() end 
-						}, { frame = colors.gray, title = colors.red, text = colors.white, close = colors.red })
+						})
 					end
+				},
+				{label = "NET SCANNER",	sub = "Find Gates",
+					action = function() openScannerWindow() end
+				},
+				{
+					label = "MONITOR LINK",
+					sub = (function()
+						local driveSide = getAvailableDrive()
+						if not driveSide then return "NO DRIVE" end
+						
+						local hasDiskDir = fs.exists("disk")
+						if not disk.isPresent(driveSide) or not hasDiskDir then 
+							return "NO PC IN DRIVE" 
+						end
+						
+						local dID = disk.getID(driveSide)
+						return (not dID or dID == -1) and "READY TO LINK" or "FLOPPY PRESENT"
+					end)(),
+					action = function() 
+						local driveSide = getAvailableDrive()
+						if driveSide and disk.isPresent(driveSide) and fs.exists("disk") then
+							local dID = disk.getID(driveSide)
+							if not dID or dID == -1 then
+								WirelessClient(driveSide)
+							end
+						end 
+					end,
+					customColors = (function()
+						local driveSide = getAvailableDrive()
+						local hasDiskDir = fs.exists("disk")
+						
+						if not driveSide or not disk.isPresent(driveSide) or not hasDiskDir then
+							return {bg = colors.lightGray, text = colors.white, sub = colors.gray}
+						end
+						
+						local dID = disk.getID(driveSide)
+						if not dID or dID == -1 then
+							return {bg = colors.gray, text = colors.white, sub = colors.lime}
+						end
+						return {bg = colors.lightGray, text = colors.white, sub = colors.yellow}
+					end)()
 				},
 				{
 					label = "EXTERNAL DISK",
@@ -1522,8 +1709,9 @@ return function(stargate, Gates, display, shell)
 						return nil
 					end)()
 				},
-				{label = "NET SCANNER",	sub = "Find Gates",
-					action = function() openScannerWindow() end
+				{label = "", sub = "",
+					action = function()
+					end
 				},
 				{label = "OS UPDATES",
 					sub = "Check Ver",
@@ -1532,7 +1720,7 @@ return function(stargate, Gates, display, shell)
 						ui.openWindow({ 
 							title = "GateOS - " .. (_G.OS_VERSION or "v??"), 
 							customRender = renderReleaseList 
-						}, { frame = colors.gray, title = colors.blue, text = colors.white, close = colors.red })
+						})
 					end
 				}
 			}
@@ -1568,18 +1756,18 @@ return function(stargate, Gates, display, shell)
 						{ label = "------------------------------------" },
 						{ label = "A CC:Tweaked JSG Dialing Computer." },
 						{ label = "!! half the code is done with ai !!" },
-						{ label = "finally got the menus reworked" },
-						{ label = "and biggest of all smaller subpixels" },
-						{ label = "for rendering, so now even more fancy" },
-						{ label = "glyphs! and a new lock in sidebar!" },
-						{ label = "also propperly implemented exporting" },
-						{ label = "and made it a bit more efficient" },
-						{ label = "other then that just small stuff" },
-						{ label = "" },
+						{ label = "Finally got around to wireless" },
+						{ label = "monitors, just trow them in the" },
+						{ label = "drive press link and done!" },
+						{ label = "netscanner was also fixed" },
+						{ label = "same with dumping the gate address" },
+						{ label = "also addad a shift button to the " },
+						{ label = "touch keyboard and migrated the" },
+						{ label = "config files." },
 						{ label = "" },
 						{ label = "BACK", action = function() return true end }
 					}
-				}, { frame = colors.lightGray, title = colors.white, text = colors.cyan, close = colors.red })
+				})
 			end)
 			local debugLabel = config.debug and "DEBUG:ON " or "DEBUG:OFF"
 			display.setCursorPos(40, bottomY)
@@ -1775,7 +1963,8 @@ return function(stargate, Gates, display, shell)
 			elseif event == "key" then
 				if p1 == keys.q then self.running = false end
 			end
-			if needsRender then self.renderMenu() drawGate() end 
+			if needsRender then self.renderMenu() drawGate() end
+			
 		end
     end
     display.clear()
